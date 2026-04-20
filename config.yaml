@@ -1,0 +1,29 @@
+server:
+  port: 18081
+  mode: debug
+
+database:
+  host: 10.25.65.177
+  port: 8306
+  name: letter_manage_db
+  user: root
+  password: "000000"
+  charset: utf8mb4
+  max_idle_conns: 10
+  max_open_conns: 100
+
+llm:
+  api_url: https://api.deepseek.com/v1/chat/completions
+  api_key: "your-deepseek-api-key"
+  model: deepseek-chat
+  timeout: 120
+
+media:
+  root: ./media
+
+cors:
+  allowed_origins:
+    - http://localhost:5173
+    - http://localhost:3000
+    - http://127.0.0.1:5173
+    - http://127.0.0.1:3000

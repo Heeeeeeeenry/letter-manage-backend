@@ -1,0 +1,212 @@
+-- =====================================================
+-- 数据迁移参考 SQL
+-- 从老库 pot_data (Django) 迁移到新库 letter_manage_db
+-- 注意: 以下 SQL 为参考，需根据实际老库表名和字段名调整
+-- =====================================================
+
+-- 使用新库
+USE letter_manage_db;
+
+-- =====================================================
+-- 1. 迁移信件表 (老库: pot_data.信件表 -> 新库: letters)
+-- =====================================================
+-- 老库字段映射 (根据实际中文字段名调整):
+--   序号 -> id (PK)
+--   信件编号 -> letter_no
+--   群众姓名 -> citizen_name
+--   手机号 -> phone
+--   身份证号 -> id_card
+--   来信时间 -> received_at
+--   来信渠道 -> channel
+--   信件一级分类 -> category_l1
+--   信件二级分类 -> category_l2
+--   信件三级分类 -> category_l3
+--   诉求内容 -> content
+--   专项关注标签 -> special_tags
+--   当前信件处理单位 -> current_unit
+--   当前信件状态 -> current_status
+--
+-- INSERT INTO letter_manage_db.letters
+--   (letter_no, citizen_name, phone, id_card, received_at, channel,
+--    category_l1, category_l2, category_l3, content, special_tags,
+--    current_unit, current_status, created_at, updated_at)
+-- SELECT
+--   `信件编号`,
+--   `群众姓名`,
+--   `手机号`,
+--   `身份证号`,
+--   `来信时间`,
+--   `来信渠道`,
+--   `信件一级分类`,
+--   `信件二级分类`,
+--   `信件三级分类`,
+--   `诉求内容`,
+--   `专项关注标签`,
+--   `当前信件处理单位`,
+--   `当前信件状态`,
+--   NOW(),
+--   NOW()
+-- FROM pot_data.信件表;
+
+-- =====================================================
+-- 2. 迁移流转记录表 (老库: pot_data.流转表 -> 新库: letter_flows)
+-- =====================================================
+-- 老库字段映射:
+--   序号 -> id (PK)
+--   信件编号 -> letter_no
+--   流转记录 -> flow_records (JSON)
+--   创建时间 -> created_at
+--   更新时间 -> updated_at
+--
+-- INSERT INTO letter_manage_db.letter_flows
+--   (letter_no, flow_records, created_at, updated_at)
+-- SELECT
+--   `信件编号`,
+--   `流转记录`,
+--   `创建时间`,
+--   `更新时间`
+-- FROM pot_data.流转表;
+
+-- =====================================================
+-- 3. 迁移附件表 (老库: pot_data.文件表 -> 新库: letter_attachments)
+-- =====================================================
+-- 老库字段映射:
+--   序号 -> id (PK)
+--   信件编号 -> letter_no
+--   市局下发附件 -> city_dispatch_files (JSON)
+--   区县局下发附件 -> district_dispatch_files (JSON)
+--   办案单位反馈附件 -> handler_feedback_files (JSON)
+--   区县局反馈附件 -> district_feedback_files (JSON)
+--   通话录音附件 -> call_recordings (JSON)
+--   创建时间 -> created_at
+--   更新时间 -> updated_at
+--
+-- INSERT INTO letter_manage_db.letter_attachments
+--   (letter_no, city_dispatch_files, district_dispatch_files,
+--    handler_feedback_files, district_feedback_files, call_recordings,
+--    created_at, updated_at)
+-- SELECT
+--   `信件编号`,
+--   IFNULL(`市局下发附件`, '[]'),
+--   IFNULL(`区县局下发附件`, '[]'),
+--   IFNULL(`办案单位反馈附件`, '[]'),
+--   IFNULL(`区县局反馈附件`, '[]'),
+--   IFNULL(`通话录音附件`, '[]'),
+--   `创建时间`,
+--   `更新时间`
+-- FROM pot_data.文件表;
+
+-- =====================================================
+-- 4. 迁移反馈表 (老库: pot_data.反馈表 -> 新库: feedbacks)
+-- =====================================================
+-- INSERT INTO letter_manage_db.feedbacks
+--   (letter_no, feedback_info, created_at, updated_at)
+-- SELECT
+--   `信件编号`,
+--   `反馈信息`,
+--   `创建时间`,
+--   `更新时间`
+-- FROM pot_data.反馈表;
+
+-- =====================================================
+-- 5. 迁移分类表 (老库: pot_data.信件分类表 -> 新库: categories)
+-- =====================================================
+-- INSERT INTO letter_manage_db.categories
+--   (level1, level2, level3)
+-- SELECT
+--   `一级分类`,
+--   IFNULL(`二级分类`, ''),
+--   IFNULL(`三级分类`, '')
+-- FROM pot_data.信件分类表;
+
+-- =====================================================
+-- 6. 迁移单位表 (老库: pot_data.单位 -> 新库: units)
+-- =====================================================
+-- INSERT INTO letter_manage_db.units
+--   (id, level1, level2, level3, system_code)
+-- SELECT
+--   id,
+--   IFNULL(`一级`, ''),
+--   IFNULL(`二级`, ''),
+--   IFNULL(`三级`, ''),
+--   `系统编码`
+-- FROM pot_data.单位;
+
+-- =====================================================
+-- 7. 迁移用户表 (老库: pot_data.police_users -> 新库: police_users)
+-- =====================================================
+-- 注意: 老库password字段可能是明文或其他哈希方式，需要重置或按实际情况处理
+-- INSERT INTO letter_manage_db.police_users
+--   (id, password_hash, name, nickname, police_number, phone, unit_name,
+--    permission_level, is_active, created_at, last_login)
+-- SELECT
+--   id,
+--   password,  -- 注意: 如果老库存的不是SHA256则需要转换或重置
+--   name,
+--   IFNULL(nickname, ''),
+--   police_number,
+--   IFNULL(phone, ''),
+--   IFNULL(unit_name, ''),
+--   permission_level,
+--   is_active,
+--   created_at,
+--   last_login
+-- FROM pot_data.police_users;
+
+-- =====================================================
+-- 8. 迁移下发权限表 (老库: pot_data.下发权限表 -> 新库: dispatch_permissions)
+-- =====================================================
+-- INSERT INTO letter_manage_db.dispatch_permissions
+--   (unit_name, dispatch_scope, created_at, updated_at)
+-- SELECT
+--   `单位全称`,
+--   `下发范围`,
+--   `创建时间`,
+--   `最后更新时间`
+-- FROM pot_data.下发权限表;
+
+-- =====================================================
+-- 9. 迁移提示词表 (老库: pot_data.提示词 -> 新库: prompts)
+-- =====================================================
+-- INSERT INTO letter_manage_db.prompts
+--   (id, prompt_type, content)
+-- SELECT
+--   id,
+--   `类型`,
+--   `内容`
+-- FROM pot_data.提示词;
+
+-- =====================================================
+-- 10. 迁移专项关注表 (老库: pot_data.专项关注 -> 新库: special_focuses)
+-- =====================================================
+-- INSERT INTO letter_manage_db.special_focuses
+--   (id, tag_name, description, created_at)
+-- SELECT
+--   `序号`,
+--   `标签名`,
+--   IFNULL(`描述`, ''),
+--   `创建时间`
+-- FROM pot_data.专项关注;
+
+-- =====================================================
+-- 迁移后验证
+-- =====================================================
+-- SELECT 'letters' as tbl, COUNT(*) as cnt FROM letter_manage_db.letters
+-- UNION ALL
+-- SELECT 'letter_flows', COUNT(*) FROM letter_manage_db.letter_flows
+-- UNION ALL
+-- SELECT 'letter_attachments', COUNT(*) FROM letter_manage_db.letter_attachments
+-- UNION ALL
+-- SELECT 'feedbacks', COUNT(*) FROM letter_manage_db.feedbacks
+-- UNION ALL
+-- SELECT 'categories', COUNT(*) FROM letter_manage_db.categories
+-- UNION ALL
+-- SELECT 'units', COUNT(*) FROM letter_manage_db.units
+-- UNION ALL
+-- SELECT 'police_users', COUNT(*) FROM letter_manage_db.police_users
+-- UNION ALL
+-- SELECT 'dispatch_permissions', COUNT(*) FROM letter_manage_db.dispatch_permissions
+-- UNION ALL
+-- SELECT 'prompts', COUNT(*) FROM letter_manage_db.prompts
+-- UNION ALL
+-- SELECT 'special_focuses', COUNT(*) FROM letter_manage_db.special_focuses;

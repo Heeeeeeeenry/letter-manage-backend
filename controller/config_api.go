@@ -50,45 +50,52 @@ func handleGetMenu(c *gin.Context) {
 		}
 	}
 
-	// 基础菜单（所有用户可见）
-	mainItems := []FrontMenuItem{
+	// 第一组：工作台（无分组标题，对应老代码中分割线前的菜单项）
+	workbenchItems := []FrontMenuItem{
 		{ID: "home", Name: "首页", Icon: "fa-home"},
-		{ID: "letters", Name: "信件列表", Icon: "fa-envelope"},
-		{ID: "processing", Name: "处理工作台", Icon: "fa-tools"},
-		{ID: "statistics", Name: "统计分析", Icon: "fa-chart-bar"},
+		{ID: "letters", Name: "所有信件", Icon: "fa-envelope"},
+		{ID: "processing", Name: "处理工作台", Icon: "fa-edit"},
 	}
 
-	// 区县局及以上可见
+	// 区县局及以上可见的工作台菜单
 	if user != nil && (user.PermissionLevel == model.PermissionCity || user.PermissionLevel == model.PermissionDistrict) {
-		mainItems = append(mainItems,
+		workbenchItems = append(workbenchItems,
 			FrontMenuItem{ID: "dispatch", Name: "下发工作台", Icon: "fa-paper-plane"},
-			FrontMenuItem{ID: "audit", Name: "核查工作台", Icon: "fa-search"},
+			FrontMenuItem{ID: "audit", Name: "核查工作台", Icon: "fa-check-circle"},
 		)
 	}
 
-	// 市局可见
-	if user != nil && user.PermissionLevel == model.PermissionCity {
-		mainItems = append(mainItems,
-			FrontMenuItem{ID: "special-focus", Name: "专项关注", Icon: "fa-star"},
-			FrontMenuItem{ID: "category", Name: "分类管理", Icon: "fa-tags"},
-			FrontMenuItem{ID: "organization", Name: "组织机构", Icon: "fa-sitemap"},
-		)
-	}
-
-	// 管理菜单
-	adminItems := []FrontMenuItem{
-		{ID: "settings", Name: "系统设置", Icon: "fa-cog"},
-	}
-	if user != nil && (user.PermissionLevel == model.PermissionCity || user.PermissionLevel == model.PermissionDistrict) {
-		adminItems = append([]FrontMenuItem{{ID: "users", Name: "用户管理", Icon: "fa-users"}}, adminItems...)
-	}
-	adminItems = append(adminItems,
-		FrontMenuItem{ID: "logout", Name: "退出登录", Icon: "fa-sign-out-alt", IsAction: true},
+	// 统计工作台（所有用户可见）
+	workbenchItems = append(workbenchItems,
+		FrontMenuItem{ID: "statistics", Name: "统计工作台", Icon: "fa-chart-bar"},
 	)
 
+	// 第二组：管理员功能（对应老代码中“管理员功能”分组）
+	adminItems := []FrontMenuItem{}
+	if user != nil && (user.PermissionLevel == model.PermissionCity || user.PermissionLevel == model.PermissionDistrict) {
+		adminItems = append(adminItems,
+			FrontMenuItem{ID: "users", Name: "用户管理", Icon: "fa-users"},
+		)
+	}
+	// 市局可见的管理员功能
+	if user != nil && user.PermissionLevel == model.PermissionCity {
+		adminItems = append(adminItems,
+			FrontMenuItem{ID: "organization", Name: "组织管理", Icon: "fa-sitemap"},
+			FrontMenuItem{ID: "special-focus", Name: "专项关注", Icon: "fa-star"},
+			FrontMenuItem{ID: "category", Name: "分类管理", Icon: "fa-tags"},
+		)
+	}
+
+	// 第三组：系统相关（对应老代码中“系统相关”分组）
+	systemItems := []FrontMenuItem{
+		{ID: "settings", Name: "系统设置", Icon: "fa-sliders-h"},
+		{ID: "logout", Name: "退出登录", Icon: "fa-sign-out-alt", IsAction: true},
+	}
+
 	groups := []FrontMenuGroup{
-		{Group: "工作台", Items: mainItems},
-		{Group: "管理", Items: adminItems},
+		{Group: "", Items: workbenchItems},               // 第一组无标题，前端渲染时不会显示标题
+		{Group: "管理员功能", Items: adminItems},          // 第二组标题“管理员功能”
+		{Group: "系统相关", Items: systemItems},           // 第三组标题“系统相关”
 	}
 
 	// 同时返回用户信息

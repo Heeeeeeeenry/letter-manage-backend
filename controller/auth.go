@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -53,7 +54,7 @@ func handleLogin(c *gin.Context, args map[string]interface{}) {
 	if rememberMe {
 		maxAge = 30 * 24 * 3600
 	}
-	c.SetCookie("session_key", result.SessionKey, maxAge, "/", "", false, true)
+	c.Header("Set-Cookie", fmt.Sprintf("session_key=%s; Path=/; Max-Age=%d; HttpOnly", result.SessionKey, maxAge))
 
 	// Return user info (without password)
 	userInfo := map[string]interface{}{

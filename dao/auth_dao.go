@@ -64,11 +64,21 @@ func DeleteUser(id uint) error {
 	return DB.Delete(&model.PoliceUser{}, id).Error
 }
 
-func GetUserList(page, pageSize int) ([]model.PoliceUser, int64, error) {
+func GetUserList(page, pageSize int, unitFilter string, permLevel string) ([]model.PoliceUser, int64, error) {
 	var users []model.PoliceUser
 	var total int64
 	offset := (page - 1) * pageSize
 	query := DB.Model(&model.PoliceUser{})
+	if unitFilter != "" && permLevel == "DISTRICT" {
+		subUnits := GetSubordinateUnitNames(unitFilter)
+		if len(subUnits) > 0 {
+			query = query.Where("unit_name IN ?", subUnits)
+		} else {
+			query = query.Where("unit_name = ?", unitFilter)
+		}
+	} else if unitFilter != "" {
+		query = query.Where("unit_name = ?", unitFilter)
+	}
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
@@ -104,6 +114,32 @@ func GetAllUnits() ([]model.Unit, error) {
 	var units []model.Unit
 	err := DB.Find(&units).Error
 	return units, err
+}
+
+// GetSubordinateUnitNames 获取某单位及其下属所有单位的短名称列表
+func GetSubordinateUnitNames(unitName string) []string {
+	allUnits, err := GetAllUnits()
+	if err != nil {
+		return nil
+	}
+	var names []string
+	seen := map[string]bool{}
+	for _, u := range allUnits {
+		if u.Level1 == unitName || u.Level2 == unitName || u.Level3 == unitName {
+			shortName := u.Level3
+			if shortName == "" {
+				shortName = u.Level2
+			}
+			if shortName == "" {
+				shortName = u.Level1
+			}
+			if shortName != "" && !seen[shortName] {
+				seen[shortName] = true
+				names = append(names, shortName)
+			}
+		}
+	}
+	return names
 }
 
 func GetUnitByID(id uint) (*model.Unit, error) {

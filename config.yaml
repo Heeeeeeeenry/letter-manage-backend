@@ -14,7 +14,7 @@ database:
 
 llm:
   api_url: https://api.deepseek.com/v1/chat/completions
-  api_key: "your-deepseek-api-key"
+  api_key: "sk-d0cd677143b045e1b65600d6ace3f8ec"
   model: deepseek-chat
   timeout: 120
 

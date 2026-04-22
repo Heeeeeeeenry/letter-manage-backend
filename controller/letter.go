@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"letter-manage-backend/config"
-	"letter-manage-backend/dao"
 	"letter-manage-backend/middleware"
 	"letter-manage-backend/model"
 	"letter-manage-backend/service"
@@ -47,13 +46,13 @@ func LetterController(c *gin.Context) {
 	case "get_audit_list":
 		handleGetAuditList(c, req.Args, user)
 	case "get_detail":
-		handleGetDetail(c, req.Args)
+		handleGetDetail(c, req.Args, user)
 	case "get_files":
-		handleGetFiles(c, req.Args)
+		handleGetFiles(c, req.Args, user)
 	case "get_by_phone":
-		handleGetByPhone(c, req.Args)
+		handleGetByPhone(c, req.Args, user)
 	case "get_by_idcard":
-		handleGetByIDCard(c, req.Args)
+		handleGetByIDCard(c, req.Args, user)
 	case "create":
 		handleCreateLetter(c, req.Args)
 	case "update":
@@ -63,15 +62,19 @@ func LetterController(c *gin.Context) {
 	case "update_status":
 		handleUpdateStatus(c, req.Args, user)
 	case "get_statistics":
-		handleGetStatistics(c)
+		handleGetStatistics(c, user)
 	case "get_attachments":
-		handleGetAttachments(c, req.Args)
+		handleGetAttachments(c, req.Args, user)
 	case "update_attachments":
 		handleUpdateAttachments(c, req.Args)
 	case "get_categories":
 		handleGetCategories(c)
 	case "dispatch":
 		handleDispatch(c, req.Args, user)
+	case "analyze_letter":
+		handleAnalyzeLetter(c, req.Args)
+	case "auto_dispatch":
+		handleAutoDispatch(c, req.Args, user)
 	case "mark_invalid":
 		handleMarkInvalid(c, req.Args, user)
 	case "submit_processing":
@@ -90,7 +93,7 @@ func LetterController(c *gin.Context) {
 }
 
 func handleGetList(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
-	data, err := service.GetLetterList(args)
+	data, err := service.GetLetterList(args, user.UnitName, string(user.PermissionLevel))
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return
@@ -125,13 +128,13 @@ func handleGetAuditList(c *gin.Context, args map[string]interface{}, user *model
 	c.JSON(http.StatusOK, model.SuccessResp(data))
 }
 
-func handleGetDetail(c *gin.Context, args map[string]interface{}) {
+func handleGetDetail(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
 	letterNo, ok := args["letter_no"].(string)
 	if !ok || letterNo == "" {
 		c.JSON(http.StatusOK, model.ErrorResp("letter_no required"))
 		return
 	}
-	data, err := service.GetLetterDetail(letterNo)
+	data, err := service.GetLetterDetail(letterNo, user.UnitName, string(user.PermissionLevel))
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return
@@ -139,7 +142,7 @@ func handleGetDetail(c *gin.Context, args map[string]interface{}) {
 	c.JSON(http.StatusOK, model.SuccessResp(data))
 }
 
-func handleGetFiles(c *gin.Context, args map[string]interface{}) {
+func handleGetFiles(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
 	letterNo, ok := args["letter_no"].(string)
 	if !ok || letterNo == "" {
 		c.JSON(http.StatusOK, model.ErrorResp("letter_no required"))
@@ -153,13 +156,13 @@ func handleGetFiles(c *gin.Context, args map[string]interface{}) {
 	c.JSON(http.StatusOK, model.SuccessResp(att))
 }
 
-func handleGetByPhone(c *gin.Context, args map[string]interface{}) {
+func handleGetByPhone(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
 	phone, ok := args["phone"].(string)
 	if !ok || phone == "" {
 		c.JSON(http.StatusOK, model.ErrorResp("phone required"))
 		return
 	}
-	letters, err := dao.GetLettersByPhone(phone)
+	letters, err := service.GetLettersByPhone(phone, user.UnitName, string(user.PermissionLevel))
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return
@@ -167,13 +170,13 @@ func handleGetByPhone(c *gin.Context, args map[string]interface{}) {
 	c.JSON(http.StatusOK, model.SuccessResp(letters))
 }
 
-func handleGetByIDCard(c *gin.Context, args map[string]interface{}) {
+func handleGetByIDCard(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
 	idCard, ok := args["id_card"].(string)
 	if !ok || idCard == "" {
 		c.JSON(http.StatusOK, model.ErrorResp("id_card required"))
 		return
 	}
-	letters, err := dao.GetLettersByIDCard(idCard)
+	letters, err := service.GetLettersByIDCard(idCard, user.UnitName, string(user.PermissionLevel))
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return
@@ -214,8 +217,8 @@ func handleUpdateStatus(c *gin.Context, args map[string]interface{}, user *model
 	c.JSON(http.StatusOK, model.SuccessResp(nil))
 }
 
-func handleGetStatistics(c *gin.Context) {
-	data, err := service.GetStatistics()
+func handleGetStatistics(c *gin.Context, user *model.PoliceUser) {
+	data, err := service.GetStatistics(user.UnitName, string(user.PermissionLevel))
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return
@@ -223,7 +226,7 @@ func handleGetStatistics(c *gin.Context) {
 	c.JSON(http.StatusOK, model.SuccessResp(data))
 }
 
-func handleGetAttachments(c *gin.Context, args map[string]interface{}) {
+func handleGetAttachments(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
 	letterNo, ok := args["letter_no"].(string)
 	if !ok || letterNo == "" {
 		c.JSON(http.StatusOK, model.ErrorResp("letter_no required"))
@@ -260,6 +263,29 @@ func handleDispatch(c *gin.Context, args map[string]interface{}, user *model.Pol
 		return
 	}
 	c.JSON(http.StatusOK, model.SuccessResp(nil))
+}
+
+func handleAnalyzeLetter(c *gin.Context, args map[string]interface{}) {
+	letterNo, ok := args["letter_no"].(string)
+	if !ok || letterNo == "" {
+		c.JSON(http.StatusOK, model.ErrorResp("letter_no required"))
+		return
+	}
+	analysis, err := service.AnalyzeLetterForDispatch(letterNo)
+	if err != nil {
+		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, model.SuccessResp(analysis))
+}
+
+func handleAutoDispatch(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
+	result, err := service.AutoDispatchLetter(args, user)
+	if err != nil {
+		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, model.SuccessResp(result))
 }
 
 func handleMarkInvalid(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {

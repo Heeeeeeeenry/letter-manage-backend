@@ -22,6 +22,7 @@ type LetterFilter struct {
 	StartTime  *time.Time
 	EndTime    *time.Time
 	UnitName   string
+	UnitNames  []string
 	Page       int
 	PageSize   int
 }
@@ -64,6 +65,9 @@ func buildLetterQuery(filter LetterFilter) *gorm.DB {
 	}
 	if filter.UnitName != "" {
 		query = query.Where("current_unit = ?", filter.UnitName)
+	}
+	if len(filter.UnitNames) > 0 {
+		query = query.Where("current_unit IN ?", filter.UnitNames)
 	}
 	return query
 }

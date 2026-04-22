@@ -57,12 +57,12 @@ func SettingController(c *gin.Context) {
 
 	// Units
 	case "get_units":
-		data, err := service.GetUnitList(req.Args)
+		units, err := service.GetAllUnits()
 		if err != nil {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 			return
 		}
-		c.JSON(http.StatusOK, model.SuccessResp(data))
+		c.JSON(http.StatusOK, model.SuccessResp(units))
 
 	case "get_dispatch_units":
 		units, err := service.GetDispatchUnits(user)
@@ -111,7 +111,7 @@ func SettingController(c *gin.Context) {
 			c.JSON(http.StatusOK, model.ErrorResp("无权限"))
 			return
 		}
-		data, err := service.GetUserList(req.Args)
+		data, err := service.GetUserList(req.Args, user.UnitName, string(user.PermissionLevel))
 		if err != nil {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 			return

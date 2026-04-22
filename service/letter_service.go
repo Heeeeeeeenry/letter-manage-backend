@@ -15,6 +15,8 @@ func GenerateLetterNo() string {
 }
 
 func GetLetterList(args map[string]interface{}) (map[string]interface{}, error) {
+	// Remove order field from args to prevent SQL injection
+	delete(args, "order")
 	filter := dao.LetterFilter{}
 	if v, ok := args["status"].(string); ok {
 		filter.Status = v
@@ -30,6 +32,18 @@ func GetLetterList(args map[string]interface{}) (map[string]interface{}, error) 
 	}
 	if v, ok := args["keyword"].(string); ok {
 		filter.Keyword = v
+	}
+	if v, ok := args["letter_no"].(string); ok {
+		filter.LetterNo = v
+	}
+	if v, ok := args["citizen_name"].(string); ok {
+		filter.CitizenName = v
+	}
+	if v, ok := args["phone"].(string); ok {
+		filter.Phone = v
+	}
+	if v, ok := args["id_card"].(string); ok {
+		filter.IDCard = v
 	}
 	if v, ok := args["start_time"].(string); ok && v != "" {
 		t, err := time.ParseInLocation("2006-01-02", v, time.Local)

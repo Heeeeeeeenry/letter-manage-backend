@@ -15,6 +15,10 @@ type LetterFilter struct {
 	CategoryL2 string
 	CategoryL3 string
 	Keyword    string
+	LetterNo   string
+	CitizenName string
+	Phone      string
+	IDCard     string
 	StartTime  *time.Time
 	EndTime    *time.Time
 	UnitName   string
@@ -39,6 +43,18 @@ func buildLetterQuery(filter LetterFilter) *gorm.DB {
 	if filter.Keyword != "" {
 		like := "%" + filter.Keyword + "%"
 		query = query.Where("citizen_name LIKE ? OR phone LIKE ? OR letter_no LIKE ? OR content LIKE ?", like, like, like, like)
+	}
+	if filter.LetterNo != "" {
+		query = query.Where("letter_no = ?", filter.LetterNo)
+	}
+	if filter.CitizenName != "" {
+		query = query.Where("citizen_name = ?", filter.CitizenName)
+	}
+	if filter.Phone != "" {
+		query = query.Where("phone = ?", filter.Phone)
+	}
+	if filter.IDCard != "" {
+		query = query.Where("id_card = ?", filter.IDCard)
 	}
 	if filter.StartTime != nil {
 		query = query.Where("received_at >= ?", filter.StartTime)

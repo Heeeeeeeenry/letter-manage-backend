@@ -165,8 +165,47 @@ func GetUserList(args map[string]interface{}) (map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 映射字段为前端期望的键名
+	mappedUsers := make([]map[string]interface{}, len(users))
+	for i, user := range users {
+		// 状态映射：is_active 布尔值 -> 显示文本
+		statusText := "已禁用"
+		if user.IsActive {
+			statusText = "已激活"
+		}
+		// 权限级别中文映射
+		permissionLevelChinese := "基层单位"
+		switch user.PermissionLevel {
+		case model.PermissionCity:
+			permissionLevelChinese = "市级"
+		case model.PermissionDistrict:
+			permissionLevelChinese = "区级"
+		case model.PermissionOfficer:
+			permissionLevelChinese = "基层单位"
+		}
+		mappedUsers[i] = map[string]interface{}{
+			"id":           user.ID,
+			"姓名":          user.Name,
+			"name":         user.Name,
+			"警号":          user.PoliceNumber,
+			"police_number": user.PoliceNumber,
+			"所属单位":       user.UnitName,
+			"org":          user.UnitName,
+			"unit_name":    user.UnitName,
+			"权限级别":       permissionLevelChinese,
+			"role":         string(user.PermissionLevel),
+			"permission_level": string(user.PermissionLevel),
+			"状态":          statusText,
+			"status":       statusText,
+			"is_active":    user.IsActive,
+			"nickname":     user.Nickname,
+			"phone":        user.Phone,
+			"created_at":   user.CreatedAt,
+			"last_login":   user.LastLogin,
+		}
+	}
 	return map[string]interface{}{
-		"list":      users,
+		"list":      mappedUsers,
 		"total":     total,
 		"page":      page,
 		"page_size": pageSize,

@@ -57,12 +57,12 @@ func SettingController(c *gin.Context) {
 
 	// Units
 	case "get_units":
-		units, err := service.GetAllUnits()
+		result, err := service.GetUnitsWithFilter(req.Args)
 		if err != nil {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 			return
 		}
-		c.JSON(http.StatusOK, model.SuccessResp(units))
+		c.JSON(http.StatusOK, model.SuccessResp(result))
 
 	case "get_dispatch_units":
 		units, err := service.GetDispatchUnits(user)

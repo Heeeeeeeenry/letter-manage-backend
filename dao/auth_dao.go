@@ -116,7 +116,49 @@ func GetAllUnits() ([]model.Unit, error) {
 	return units, err
 }
 
-// GetSubordinateUnitNames 获取某单位及其下属所有单位的短名称列表
+// GetUnitsWithFilter 获取单位列表，支持分页和筛选
+func GetUnitsWithFilter(page, pageSize int, searchKeyword, filterLevel1, filterLevel2 string) ([]model.Unit, int64, error) {
+	var units []model.Unit
+	var total int64
+
+	query := DB.Model(&model.Unit{})
+
+	// 搜索关键词：匹配 level1, level2, level3 任一字段
+	if searchKeyword != "" {
+		keyword := "%" + searchKeyword + "%"
+		query = query.Where("level1 LIKE ? OR level2 LIKE ? OR level3 LIKE ?", keyword, keyword, keyword)
+	}
+
+	// 一级单位筛选
+	if filterLevel1 != "" {
+		query = query.Where("level1 = ?", filterLevel1)
+	}
+
+	// 二级单位筛选
+	if filterLevel2 != "" {
+		query = query.Where("level2 = ?", filterLevel2)
+	}
+
+	// 计算总数
+	err := query.Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 分页：如果 pageSize <= 0，则返回所有数据
+	if pageSize > 0 {
+		offset := (page - 1) * pageSize
+		err = query.Offset(offset).Limit(pageSize).Find(&units).Error
+	} else {
+		// 返回所有数据
+		err = query.Find(&units).Error
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return units, total, err
+}
 func GetSubordinateUnitNames(unitName string) []string {
 	allUnits, err := GetAllUnits()
 	if err != nil {

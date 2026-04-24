@@ -3,6 +3,8 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"log"
+	"strconv"
 
 	"letter-manage-backend/dao"
 	"letter-manage-backend/model"
@@ -96,6 +98,69 @@ func GetUnitList(args map[string]interface{}) (map[string]interface{}, error) {
 
 func GetAllUnits() ([]model.Unit, error) {
 	return dao.GetAllUnits()
+}
+
+// GetUnitsWithFilter 获取单位列表，支持分页和筛选
+func GetUnitsWithFilter(args map[string]interface{}) (map[string]interface{}, error) {
+	// 调试日志：打印接收到的参数
+	log.Printf("[GetUnitsWithFilter] args: %+v", args)
+	
+	// 解析分页参数
+	page := 1
+	if v, ok := args["page"]; ok {
+		switch val := v.(type) {
+		case float64:
+			page = int(val)
+		case int:
+			page = val
+		case string:
+			if i, err := strconv.Atoi(val); err == nil {
+				page = i
+			}
+		}
+	}
+	pageSize := 20
+	if v, ok := args["page_size"]; ok {
+		switch val := v.(type) {
+		case float64:
+			pageSize = int(val)
+		case int:
+			pageSize = val
+		case string:
+			if i, err := strconv.Atoi(val); err == nil {
+				pageSize = i
+			}
+		}
+	}
+	
+	log.Printf("[GetUnitsWithFilter] parsed: page=%d, pageSize=%d", page, pageSize)
+
+	// 解析筛选参数
+	searchKeyword := ""
+	if v, ok := args["search_keyword"].(string); ok {
+		searchKeyword = v
+	}
+	filterLevel1 := ""
+	if v, ok := args["filter_level1"].(string); ok {
+		filterLevel1 = v
+	}
+	filterLevel2 := ""
+	if v, ok := args["filter_level2"].(string); ok {
+		filterLevel2 = v
+	}
+
+	// 调用 DAO
+	units, total, err := dao.GetUnitsWithFilter(page, pageSize, searchKeyword, filterLevel1, filterLevel2)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"list":      units,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	}, nil
 }
 
 func CreateUnit(args map[string]interface{}) error {

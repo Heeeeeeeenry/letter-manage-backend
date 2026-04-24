@@ -149,6 +149,13 @@ func DeleteLetter(id uint) error {
 	})
 }
 
+func UpdateLetterOperator(letterNo, operator string) error {
+	updates := map[string]interface{}{
+		"current_operator": operator,
+	}
+	return DB.Model(&model.Letter{}).Where("letter_no = ?", letterNo).Updates(updates).Error
+}
+
 func UpdateLetterStatus(letterNo, status, unitName string) error {
 	updates := map[string]interface{}{
 		"current_status": status,
@@ -157,6 +164,18 @@ func UpdateLetterStatus(letterNo, status, unitName string) error {
 		updates["current_unit"] = unitName
 	}
 	return DB.Model(&model.Letter{}).Where("letter_no = ?", letterNo).Updates(updates).Error
+}
+
+func UpdateLetterDeadline(letterNo string, deadline *time.Time) error {
+	updates := map[string]interface{}{
+		"deadline_at": deadline,
+	}
+	return DB.Model(&model.Letter{}).Where("letter_no = ?", letterNo).Updates(updates).Error
+}
+
+// UpdateLetterFields 批量更新信件字段
+func UpdateLetterFields(letterNo string, fields map[string]interface{}) error {
+	return DB.Model(&model.Letter{}).Where("letter_no = ?", letterNo).Updates(fields).Error
 }
 
 // LetterFlow DAO

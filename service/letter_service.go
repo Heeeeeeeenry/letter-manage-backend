@@ -453,7 +453,12 @@ func DispatchLetter(args map[string]interface{}, operator *model.PoliceUser) err
 		"operator_id": operator.ID,
 		"timestamp":   time.Now().Format("2006-01-02 15:04:05"),
 	}
-	return appendFlowRecord(letterNo, record)
+	if err := appendFlowRecord(letterNo, record); err != nil {
+		return err
+	}
+	// 每次下发重新设置 30 分钟处理倒计时
+	deadline := time.Now().Add(30 * time.Minute)
+	return dao.UpdateLetterDeadline(letterNo, &deadline)
 }
 
 func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string) (bool, error) {
@@ -571,15 +576,76 @@ func ReturnLetter(args map[string]interface{}, operator *model.PoliceUser) error
 		return errors.New("letter_no required")
 	}
 	remark, _ := args["remark"].(string)
-	if err := dao.UpdateLetterStatus(letterNo, model.StatusReturned, ""); err != nil {
+
+	// 获取当前信件
+	letter, err := dao.GetLetterByNo(letterNo)
+	if err != nil {
 		return err
 	}
+	if letter == nil {
+		return errors.New("letter not found")
+	}
+
+	// 获取流转记录，追溯上一个状态/人/单位
+	var prevUnit, prevStatus, prevOperator string
+	flow, err := dao.GetFlowByLetterNo(letterNo)
+	if err != nil {
+		return err
+	}
+	if flow != nil {
+		var records []map[string]interface{}
+		if err := json.Unmarshal([]byte(flow.FlowRecords), &records); err == nil {
+			// 倒序查找最后一次 dispatch 操作
+			for i := len(records) - 1; i >= 0; i-- {
+				r := records[i]
+				action, _ := r["action"].(string)
+			if action == "dispatch" {
+					prevUnit, _ = r["from_unit"].(string)
+					prevOperator, _ = r["operator"].(string)
+					// 看 dispatch 记录之前的记录状态
+					if i > 0 {
+						prevRec := records[i-1]
+						prevStatus, _ = prevRec["status"].(string)
+						if prevStatus == "" {
+							prevStatus, _ = prevRec["操作后状态"].(string)
+						}
+					}
+					break
+				}
+			}
+		}
+	}
+	if prevStatus == "" {
+		prevStatus = model.StatusReturned
+	}
+
+	// 更新信件为上一个状态
+	updates := map[string]interface{}{
+		"current_status":   prevStatus,
+		"current_unit":     prevUnit,
+		"current_operator": prevOperator,
+	}
+	if err := dao.UpdateLetterFields(letterNo, updates); err != nil {
+		return err
+	}
+
+	// 清除 deadline（等待下次下发重新计时）
+	if err := dao.UpdateLetterDeadline(letterNo, nil); err != nil {
+		return err
+	}
+
+	// 追加退回记录（保留完整历史）
 	record := map[string]interface{}{
-		"action":    "return_letter",
-		"status":    model.StatusReturned,
-		"remark":    remark,
-		"operator":  operator.Name,
-		"timestamp": time.Now().Format("2006-01-02 15:04:05"),
+		"action":        "return_letter",
+		"status":        prevStatus,
+		"from_unit":     letter.CurrentUnit,
+		"to_unit":       prevUnit,
+		"from_operator": letter.CurrentOperator,
+		"to_operator":   prevOperator,
+		"remark":        remark,
+		"operator":      operator.Name,
+		"operator_id":   operator.ID,
+		"timestamp":     time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, record)
 }

@@ -16,8 +16,10 @@ type Letter struct {
 	CategoryL3    string    `json:"category_l3" gorm:"column:category_l3;size:64"`
 	Content       string    `json:"content" gorm:"column:content;type:text"`
 	SpecialTags   JSONRaw   `json:"special_tags" gorm:"column:special_tags;type:json"`
-	CurrentUnit   string    `json:"current_unit" gorm:"column:current_unit;size:128"`
-	CurrentStatus string    `json:"current_status" gorm:"column:current_status;size:64"`
+	CurrentUnit     string    `json:"current_unit" gorm:"column:current_unit;size:128"`
+	CurrentStatus   string    `json:"current_status" gorm:"column:current_status;size:64"`
+	CurrentOperator string    `json:"current_operator" gorm:"column:current_operator;size:64"`
+	DeadlineAt    *time.Time `json:"deadline_at" gorm:"column:deadline_at"`
 	CreatedAt     time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt     time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
 }

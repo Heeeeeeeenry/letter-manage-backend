@@ -14,7 +14,7 @@ database:
 
 llm:
   api_url: https://api.deepseek.com/v1/chat/completions
-  api_key: "sk-d0c...f8ec"
+  api_key: "sk-dd2f0770cd414970ac2a16315a0c3c7a"
   model: deepseek-chat
   timeout: 120
 
@@ -29,6 +29,13 @@ cors:
     - http://127.0.0.1:5173
     - http://127.0.0.1:3000
     - http://127.0.0.1:5174
+    # 本地域名（多平台 cookie 隔离）
+    - http://admin.letter.local:5173
+    - http://admin.letter.local:3000
+    - http://admin.letter.local:5174
+    - http://citizen.letter.local:5173
+    - http://citizen.letter.local:3000
+    - http://citizen.letter.local:5174
 
 environments:
   home:

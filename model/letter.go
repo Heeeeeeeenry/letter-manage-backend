@@ -110,13 +110,15 @@ func (SpecialFocus) TableName() string { return "special_focuses" }
 
 // Letter status constants
 const (
-	StatusPreProcess     = "预处理"
-	StatusCityDispatched = "市局下发至区县局/支队"
-	StatusDispatched     = "已下发至处理单位"
-	StatusProcessing     = "正在处理"
-	StatusFeedback       = "正在反馈"
-	StatusAudit          = "待审核"
-	StatusDone           = "已办结"
-	StatusInvalid        = "无效"
-	StatusReturned       = "已退回"
+	StatusPreProcess        = "预处理"
+	StatusCityDispatched    = "市局下发至区县局/支队"
+	StatusCityDirectDispatch = "市局越级下发"
+	StatusDispatched        = "已下发至处理单位"
+	StatusProcessing        = "正在处理"
+	StatusFeedback          = "正在反馈"
+	StatusAudit             = "待审核"
+	StatusDistrictAudited   = "分县局已审核"
+	StatusDone              = "已办结"
+	StatusInvalid           = "无效"
+	StatusReturned          = "已退回"
 )

@@ -323,7 +323,7 @@ func GetProcessingList(unitName string, page, pageSize int) ([]model.Letter, int
 	query := DB.Model(&model.Letter{}).Where(
 		"current_unit = ? AND current_status IN ?",
 		unitName,
-		[]string{model.StatusDispatched, model.StatusProcessing},
+		[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch},
 	)
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -345,8 +345,10 @@ func GetAuditList(unitName string, permLevel string, page, pageSize int) ([]mode
 	query := DB.Model(&model.Letter{})
 	switch permLevel {
 	case "CITY":
-		query = query.Where("current_status = ?", model.StatusAudit)
+		// 市局：查看分县局已审核的信件 + 越级下发后基层已反馈的信件
+		query = query.Where("current_status IN ?", []string{model.StatusDistrictAudited, model.StatusFeedback})
 	case "DISTRICT":
+		// 分县局：查看本单位科室已反馈、待分县局审核的信件
 		query = query.Where("current_status = ? AND current_unit = ?", model.StatusFeedback, unitName)
 	default:
 		query = query.Where("1 = 0")

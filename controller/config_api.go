@@ -126,10 +126,12 @@ func handleGetSystemConfig(c *gin.Context) {
 		"statuses": []string{
 			model.StatusPreProcess,
 			model.StatusCityDispatched,
+			model.StatusCityDirectDispatch,
 			model.StatusDispatched,
 			model.StatusProcessing,
 			model.StatusFeedback,
 			model.StatusAudit,
+			model.StatusDistrictAudited,
 			model.StatusDone,
 			model.StatusInvalid,
 			model.StatusReturned,

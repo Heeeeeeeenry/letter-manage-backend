@@ -3,8 +3,8 @@ server:
   mode: debug
 
 database:
-  host: 10.25.65.177
-  port: 8306
+  host: 127.0.0.1
+  port: 3306
   name: letter_manage_db
   user: root
   password: "000000"
@@ -14,7 +14,7 @@ database:
 
 llm:
   api_url: https://api.deepseek.com/v1/chat/completions
-  api_key: "sk-d0cd677143b045e1b65600d6ace3f8ec"
+  api_key: "sk-d0c...f8ec"
   model: deepseek-chat
   timeout: 120
 

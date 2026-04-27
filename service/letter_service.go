@@ -433,6 +433,10 @@ func DispatchLetter(args map[string]interface{}, operator *model.PoliceUser) err
 	switch operator.PermissionLevel {
 	case model.PermissionCity:
 		newStatus = model.StatusCityDispatched
+		// 检查是否越级下发至基层科室所队（Level3 单位）
+		if isStationLevelUnit(targetUnit) {
+			newStatus = model.StatusCityDirectDispatch
+		}
 	case model.PermissionDistrict:
 		newStatus = model.StatusDispatched
 	default:
@@ -537,14 +541,54 @@ func SubmitProcessing(args map[string]interface{}, operator *model.PoliceUser) e
 		return errors.New("letter_no required")
 	}
 	remark, _ := args["remark"].(string)
-	if err := dao.UpdateLetterStatus(letterNo, model.StatusFeedback, ""); err != nil {
+
+	// 获取流转记录，追溯上次下发的来源单位（上级审核单位）
+	letter, err := dao.GetLetterByNo(letterNo)
+	if err != nil {
 		return err
 	}
+	if letter == nil {
+		return errors.New("letter not found")
+	}
+
+	var parentUnit string
+	flow, err := dao.GetFlowByLetterNo(letterNo)
+	if err != nil {
+		return err
+	}
+	if flow != nil {
+		var records []map[string]interface{}
+		if err := json.Unmarshal([]byte(flow.FlowRecords), &records); err == nil {
+			// 倒序查找最后一次 dispatch 操作，获取来源单位
+			for i := len(records) - 1; i >= 0; i-- {
+				r := records[i]
+				action, _ := r["action"].(string)
+				if action == "dispatch" {
+					parentUnit, _ = r["from_unit"].(string)
+					break
+				}
+			}
+		}
+	}
+
+	// 更新状态，同时将 current_unit 设为上级审核单位
+	updates := map[string]interface{}{
+		"current_status": model.StatusFeedback,
+	}
+	if parentUnit != "" {
+		updates["current_unit"] = parentUnit
+	}
+	if err := dao.UpdateLetterFields(letterNo, updates); err != nil {
+		return err
+	}
+
 	record := map[string]interface{}{
 		"action":    "submit_processing",
 		"status":    model.StatusFeedback,
 		"remark":    remark,
 		"operator":  operator.Name,
+		"from_unit": letter.CurrentUnit,
+		"to_unit":   parentUnit,
 		"timestamp": time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, record)
@@ -656,12 +700,25 @@ func AuditApprove(args map[string]interface{}, operator *model.PoliceUser) error
 		return errors.New("letter_no required")
 	}
 	remark, _ := args["remark"].(string)
-	if err := dao.UpdateLetterStatus(letterNo, model.StatusDone, ""); err != nil {
+
+	var newStatus string
+	switch operator.PermissionLevel {
+	case model.PermissionDistrict:
+		// 分县局审核通过 → 上报市局
+		newStatus = model.StatusDistrictAudited
+	case model.PermissionCity:
+		// 市局审核通过 → 办结
+		newStatus = model.StatusDone
+	default:
+		return errors.New("无审核权限")
+	}
+
+	if err := dao.UpdateLetterStatus(letterNo, newStatus, ""); err != nil {
 		return err
 	}
 	record := map[string]interface{}{
 		"action":    "audit_approve",
-		"status":    model.StatusDone,
+		"status":    newStatus,
 		"remark":    remark,
 		"operator":  operator.Name,
 		"timestamp": time.Now().Format("2006-01-02 15:04:05"),
@@ -972,4 +1029,19 @@ func trimWhitespace(s string) string {
 		return s[start:end]
 	}
 	return s
+}
+
+// isStationLevelUnit 检查目标单位是否为基层科室所队（Level3）
+// 用于判断市局下发是否为越级下发
+func isStationLevelUnit(targetUnit string) bool {
+	units, err := dao.GetAllUnits()
+	if err != nil {
+		return false
+	}
+	for _, u := range units {
+		if u.Level3 == targetUnit {
+			return true
+		}
+	}
+	return false
 }

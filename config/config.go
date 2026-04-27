@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -57,6 +58,24 @@ func Load(path string) error {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return fmt.Errorf("parse config file: %w", err)
 	}
+
+	// Override database config based on WORK_ENV environment variable
+	workEnv := os.Getenv("WORK_ENV")
+	switch workEnv {
+	case "home":
+		cfg.Database.Host = "127.0.0.1"
+		cfg.Database.User = "root"
+		cfg.Database.Password = "000000"
+		cfg.Database.Name = "letter_manage_db"
+		log.Println("WORK_ENV=home: using local database (127.0.0.1, letter_manage_db)")
+	case "company":
+		cfg.Database.Host = "10.25.65.177"
+		cfg.Database.Name = "letter_manage_db"
+		log.Println("WORK_ENV=company: using company database (10.25.65.177, letter_manage_db)")
+	default:
+		log.Printf("WORK_ENV=%q not set or unknown, using config.yaml defaults", workEnv)
+	}
+
 	GlobalConfig = cfg
 	return nil
 }

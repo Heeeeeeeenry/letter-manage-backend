@@ -62,7 +62,7 @@ func LetterController(c *gin.Context) {
 	case "update_status":
 		handleUpdateStatus(c, req.Args, user)
 	case "get_statistics":
-		handleGetStatistics(c, user)
+		handleGetStatistics(c, req.Args, user)
 	case "get_attachments":
 		handleGetAttachments(c, req.Args, user)
 	case "update_attachments":
@@ -111,7 +111,7 @@ func handleGetDispatchList(c *gin.Context, args map[string]interface{}, user *mo
 }
 
 func handleGetProcessingList(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
-	data, err := service.GetProcessingList(user.UnitName, args)
+	data, err := service.GetProcessingList(user.UnitName, string(user.PermissionLevel), args)
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return
@@ -217,8 +217,9 @@ func handleUpdateStatus(c *gin.Context, args map[string]interface{}, user *model
 	c.JSON(http.StatusOK, model.SuccessResp(nil))
 }
 
-func handleGetStatistics(c *gin.Context, user *model.PoliceUser) {
-	data, err := service.GetStatistics(user.UnitName, string(user.PermissionLevel))
+func handleGetStatistics(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
+	period, _ := args["period"].(string)
+	data, err := service.GetStatistics(user.UnitName, string(user.PermissionLevel), period)
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return

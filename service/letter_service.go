@@ -125,7 +125,7 @@ func GetDispatchList(unitName string, permLevel string, args map[string]interfac
 	}, nil
 }
 
-func GetProcessingList(unitName string, args map[string]interface{}) (map[string]interface{}, error) {
+func GetProcessingList(unitName string, permLevel string, args map[string]interface{}) (map[string]interface{}, error) {
 	page := 1
 	pageSize := 20
 	if v, ok := args["page"].(float64); ok {
@@ -134,7 +134,7 @@ func GetProcessingList(unitName string, args map[string]interface{}) (map[string
 	if v, ok := args["page_size"].(float64); ok {
 		pageSize = int(v)
 	}
-	letters, total, err := dao.GetProcessingList(unitName, page, pageSize)
+	letters, total, err := dao.GetProcessingList(unitName, permLevel, page, pageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -573,7 +573,7 @@ func SubmitProcessing(args map[string]interface{}, operator *model.PoliceUser) e
 
 	// 更新状态，同时将 current_unit 设为上级审核单位
 	updates := map[string]interface{}{
-		"current_status": model.StatusFeedback,
+		"current_status": model.StatusPendingDistrictAudit,
 	}
 	if parentUnit != "" {
 		updates["current_unit"] = parentUnit
@@ -584,7 +584,7 @@ func SubmitProcessing(args map[string]interface{}, operator *model.PoliceUser) e
 
 	record := map[string]interface{}{
 		"action":    "submit_processing",
-		"status":    model.StatusFeedback,
+		"status":    model.StatusPendingDistrictAudit,
 		"remark":    remark,
 		"operator":  operator.Name,
 		"from_unit": letter.CurrentUnit,
@@ -704,8 +704,8 @@ func AuditApprove(args map[string]interface{}, operator *model.PoliceUser) error
 	var newStatus string
 	switch operator.PermissionLevel {
 	case model.PermissionDistrict:
-		// 分县局审核通过 → 上报市局
-		newStatus = model.StatusDistrictAudited
+		// 分县局审核通过 → 上报市局审批
+		newStatus = model.StatusPendingCityAudit
 	case model.PermissionCity:
 		// 市局审核通过 → 办结
 		newStatus = model.StatusDone
@@ -745,8 +745,34 @@ func AuditReject(args map[string]interface{}, operator *model.PoliceUser) error 
 	return appendFlowRecord(letterNo, record)
 }
 
-func GetStatistics(unitName string, permLevel string) (map[string]interface{}, error) {
-	statusStats, err := dao.GetLetterStatusStats()
+func GetStatistics(unitName string, permLevel string, period string) (map[string]interface{}, error) {
+	// 根据 period 计算时间范围
+	var startTime, endTime *time.Time
+	now := time.Now()
+	switch period {
+	case "day":
+		t := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		startTime = &t
+	case "week":
+		weekday := int(now.Weekday())
+		if weekday == 0 {
+			weekday = 7
+		}
+		t := time.Date(now.Year(), now.Month(), now.Day()-weekday+1, 0, 0, 0, 0, now.Location())
+		startTime = &t
+	case "month":
+		t := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+		startTime = &t
+	case "year":
+		t := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+		startTime = &t
+	}
+	if startTime != nil {
+		t := now
+		endTime = &t
+	}
+
+	statusStats, err := dao.GetLetterStatusStats(startTime, endTime)
 	if err != nil {
 		return nil, err
 	}

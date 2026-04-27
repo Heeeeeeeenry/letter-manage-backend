@@ -9,11 +9,12 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Database DatabaseConfig `yaml:"database"`
-	LLM      LLMConfig      `yaml:"llm"`
-	Media    MediaConfig    `yaml:"media"`
-	CORS     CORSConfig     `yaml:"cors"`
+	Server       ServerConfig            `yaml:"server"`
+	Database     DatabaseConfig          `yaml:"database"`
+	LLM          LLMConfig               `yaml:"llm"`
+	Media        MediaConfig             `yaml:"media"`
+	CORS         CORSConfig              `yaml:"cors"`
+	Environments map[string]EnvOverride  `yaml:"environments"`
 }
 
 type ServerConfig struct {
@@ -47,8 +48,17 @@ type CORSConfig struct {
 	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
+// EnvOverride 环境覆盖配置，只包含需要按环境区分的字段
+type EnvOverride struct {
+	Database *DatabaseConfig `yaml:"database"`
+	Server   *ServerConfig   `yaml:"server"`
+	LLM      *LLMConfig      `yaml:"llm"`
+	Media    *MediaConfig    `yaml:"media"`
+}
+
 var GlobalConfig *Config
 
+// Load 加载配置：先加载基础配置，再根据 WORK_ENV 合并环境覆盖
 func Load(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -59,25 +69,79 @@ func Load(path string) error {
 		return fmt.Errorf("parse config file: %w", err)
 	}
 
-	// Override database config based on WORK_ENV environment variable
+	// 根据 WORK_ENV 合并环境覆盖
 	workEnv := os.Getenv("WORK_ENV")
-	switch workEnv {
-	case "home":
-		cfg.Database.Host = "127.0.0.1"
-		cfg.Database.User = "root"
-		cfg.Database.Password = "000000"
-		cfg.Database.Name = "letter_manage_db"
-		log.Println("WORK_ENV=home: using local database (127.0.0.1, letter_manage_db)")
-	case "company":
-		cfg.Database.Host = "10.25.65.177"
-		cfg.Database.Name = "letter_manage_db"
-		log.Println("WORK_ENV=company: using company database (10.25.65.177, letter_manage_db)")
-	default:
-		log.Printf("WORK_ENV=%q not set or unknown, using config.yaml defaults", workEnv)
+	if workEnv != "" {
+		if override, ok := cfg.Environments[workEnv]; ok {
+			mergeOverride(cfg, &override)
+			log.Printf("WORK_ENV=%s: applied environment overrides", workEnv)
+		} else {
+			log.Printf("WORK_ENV=%q set but no matching config in environments section", workEnv)
+		}
+	} else {
+		log.Println("WORK_ENV not set, using base config only")
 	}
 
 	GlobalConfig = cfg
 	return nil
+}
+
+// mergeOverride 将环境覆盖配置合并到主配置
+func mergeOverride(dst *Config, src *EnvOverride) {
+	if src.Database != nil {
+		o := src.Database
+		if o.Host != "" {
+			dst.Database.Host = o.Host
+		}
+		if o.Port != 0 {
+			dst.Database.Port = o.Port
+		}
+		if o.Name != "" {
+			dst.Database.Name = o.Name
+		}
+		if o.User != "" {
+			dst.Database.User = o.User
+		}
+		if o.Password != "" {
+			dst.Database.Password = o.Password
+		}
+		if o.Charset != "" {
+			dst.Database.Charset = o.Charset
+		}
+		if o.MaxIdleConns != 0 {
+			dst.Database.MaxIdleConns = o.MaxIdleConns
+		}
+		if o.MaxOpenConns != 0 {
+			dst.Database.MaxOpenConns = o.MaxOpenConns
+		}
+	}
+	if src.Server != nil {
+		if src.Server.Port != 0 {
+			dst.Server.Port = src.Server.Port
+		}
+		if src.Server.Mode != "" {
+			dst.Server.Mode = src.Server.Mode
+		}
+	}
+	if src.LLM != nil {
+		if src.LLM.APIURL != "" {
+			dst.LLM.APIURL = src.LLM.APIURL
+		}
+		if src.LLM.APIKey != "" {
+			dst.LLM.APIKey = src.LLM.APIKey
+		}
+		if src.LLM.Model != "" {
+			dst.LLM.Model = src.LLM.Model
+		}
+		if src.LLM.Timeout != 0 {
+			dst.LLM.Timeout = src.LLM.Timeout
+		}
+	}
+	if src.Media != nil {
+		if src.Media.Root != "" {
+			dst.Media.Root = src.Media.Root
+		}
+	}
 }
 
 func Get() *Config {

@@ -3,8 +3,8 @@ server:
   mode: debug
 
 database:
-  host: 127.0.0.1
-  port: 3306
+  host: 10.25.65.177
+  port: 8306
   name: letter_manage_db
   user: root
   password: "000000"
@@ -29,3 +29,19 @@ cors:
     - http://127.0.0.1:5173
     - http://127.0.0.1:3000
     - http://127.0.0.1:5174
+
+environments:
+  home:
+    database:
+      host: 127.0.0.1
+      user: root
+      password: "000000"
+      port: 3306
+      name: letter_manage_db
+  company:
+    database:
+      host: 10.25.65.177
+      user: root
+      password: "000000"
+      port: 8306
+      name: letter_manage_db

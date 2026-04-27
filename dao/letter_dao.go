@@ -254,11 +254,17 @@ type StatusCount struct {
 	Count  int64  `json:"count"`
 }
 
-func GetLetterStatusStats() ([]StatusCount, error) {
+func GetLetterStatusStats(startTime, endTime *time.Time) ([]StatusCount, error) {
 	var results []StatusCount
-	err := DB.Model(&model.Letter{}).
-		Select("current_status as status, count(*) as count").
-		Group("current_status").
+	query := DB.Model(&model.Letter{}).
+		Select("current_status as status, count(*) as count")
+	if startTime != nil {
+		query = query.Where("received_at >= ?", startTime)
+	}
+	if endTime != nil {
+		query = query.Where("received_at <= ?", endTime)
+	}
+	err := query.Group("current_status").
 		Scan(&results).Error
 	return results, err
 }
@@ -319,12 +325,25 @@ func GetDispatchList(unitName string, permLevel string, page, pageSize int) ([]m
 	return letters, total, err
 }
 
-func GetProcessingList(unitName string, page, pageSize int) ([]model.Letter, int64, error) {
-	query := DB.Model(&model.Letter{}).Where(
-		"current_unit = ? AND current_status IN ?",
-		unitName,
-		[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch},
-	)
+func GetProcessingList(unitName string, permLevel string, page, pageSize int) ([]model.Letter, int64, error) {
+	query := DB.Model(&model.Letter{})
+
+	// 市局可看「预处理」（未下发）和本单位已下发的信件
+	// 区县局/基层单位只可看本单位已下发的信件
+	if permLevel == "CITY" {
+		query = query.Where(
+			"(current_status = ?) OR (current_unit = ? AND current_status IN ?)",
+			model.StatusPreProcess,
+			unitName,
+			[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch},
+		)
+	} else {
+		query = query.Where(
+			"current_unit = ? AND current_status IN ?",
+			unitName,
+			[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch},
+		)
+	}
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -346,10 +365,10 @@ func GetAuditList(unitName string, permLevel string, page, pageSize int) ([]mode
 	switch permLevel {
 	case "CITY":
 		// 市局：查看分县局已审核的信件 + 越级下发后基层已反馈的信件
-		query = query.Where("current_status IN ?", []string{model.StatusDistrictAudited, model.StatusFeedback})
+		query = query.Where("current_status IN ?", []string{model.StatusPendingCityAudit, model.StatusPendingDistrictAudit})
 	case "DISTRICT":
 		// 分县局：查看本单位科室已反馈、待分县局审核的信件
-		query = query.Where("current_status = ? AND current_unit = ?", model.StatusFeedback, unitName)
+		query = query.Where("current_status = ? AND current_unit = ?", model.StatusPendingDistrictAudit, unitName)
 	default:
 		query = query.Where("1 = 0")
 	}

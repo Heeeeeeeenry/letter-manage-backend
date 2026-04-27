@@ -6,7 +6,7 @@
 
 - 框架: Gin + GORM v2
 - 数据库: MySQL (新库 `letter_manage_db`)
-- 端口: 18081
+- 端口: 8080（可通过 WORK_ENV 切换）
 - 认证: Cookie + Session (session_key)
 
 ---
@@ -74,36 +74,35 @@ python3 scripts/migrate_data.py
 
 ```yaml
 database:
-  host: "81.70.230.137"
-  port: 53306
-  user: "your_db_user"        # 修改为实际用户
-  password: "your_password"   # 修改为实际密码
+  host: "127.0.0.1"
+  port: 3306
+  user: "root"
+  password: "000000"
   name: "letter_manage_db"
-  charset: "utf8mb4"
 
 llm:
-  deepseek_api_key: "your_api_key"   # 修改为实际 DeepSeek API Key
-  deepseek_api_url: "https://api.deepseek.com/chat/completions"
-  deepseek_model: "deepseek-chat"
+  api_key: "sk-..."   # 修改为实际 DeepSeek API Key
+  api_url: "https://api.deepseek.com/v1/chat/completions"
+  model: "deepseek-chat"
 
 server:
-  port: 18081
+  port: 8080
 ```
 
 ### 5. 启动服务
 
 ```bash
-cd /Users/v_liheng02/work/test_code/for_test/letter-manage-frontend
+cd /Users/liheng/work/letter-manage-backend
 
 # 方式1：直接运行
-go run main.go
+WORK_ENV=home go run main.go
 
 # 方式2：先构建再运行
-go build -o letter-manage-server .
-./letter-manage-server
+go build -o letter-manage-server main.go
+WORK_ENV=home ./letter-manage-server
 ```
 
-服务启动后监听 http://localhost:18081
+服务启动后监听 http://localhost:8080
 
 ---
 
@@ -161,3 +160,121 @@ go build -o letter-manage-server .
                                 └─> 正在反馈 -> 待市局审核 -> 已办结
   └─> 已办结（标记无效）
 ```
+
+---
+
+## WORK_ENV 环境切换
+
+系统支持通过 `WORK_ENV` 环境变量切换不同环境的配置，避免手动修改 `config.yaml`。
+
+### 配置方式
+
+```bash
+# 使用 home 环境配置（本地开发）
+export WORK_ENV=home
+./letter-manage-server
+
+# 使用 company 环境配置（公司/服务器）
+export WORK_ENV=company
+./letter-manage-server
+
+# 不使用环境变量（使用 config.yaml 基础配置）
+unset WORK_ENV
+./letter-manage-server
+```
+
+### 支持的环境配置字段
+
+并非所有字段都支持环境覆盖。目前支持覆盖的字段：
+
+| 环境键 | 支持覆盖的字段 | 说明 |
+|--------|---------------|------|
+| `server` | `port`, `mode` | 端口和模式 |
+| `database` | `host`, `port`, `user`, `password`, `name` | 数据库连接 |
+| `llm` | `api_url`, `api_key`, `model`, `timeout` | AI 模型配置 |
+| `media` | `root` | 媒体文件路径 |
+
+### 当前配置的环境
+
+在 `config.yaml` 的 `environments` 段定义：
+
+```yaml
+environments:
+  home:
+    database:
+      host: 127.0.0.1
+      user: root
+      password: "000000"
+      port: 3306
+      name: letter_manage_db
+    server:
+      port: 8080
+  company:
+    database:
+      host: 10.25.65.177
+      user: root
+      password: "000000"
+      port: 8306
+      name: letter_manage_db
+```
+
+> 启动时日志会打印 `WORK_ENV=home: applied environment overrides` 表示已成功应用环境覆盖。
+
+---
+
+## LLM_API_KEY 环境变量
+
+DeepSeek API Key 统一通过 `LLM_API_KEY` 环境变量设置，**优先级高于 config.yaml**。多个后端项目共用同一个变量，避免重复配置。
+
+### 配置方式
+
+```bash
+# 写入 shell profile（推荐）
+echo 'export LLM_API_KEY="sk-your-key-here"' >> ~/.zshrc
+source ~/.zshrc
+
+# 或临时设置
+export LLM_API_KEY="sk-your-key-here"
+./letter-manage-server
+```
+
+### 优先级
+
+`LLM_API_KEY` 环境变量 > `config.yaml` 中的 `llm.api_key`
+
+启动时日志会打印 `LLM_API_KEY: applied environment override` 表示已从环境变量读取。
+
+---
+
+## 本地域名配置（多平台 Cookie 隔离）
+
+当同时运行管理端（admin）和市民端（citizen）时，两个平台使用相同的 `session_key` cookie 名称。若部署在同一域名下，登录一个平台会覆盖另一个平台的 cookie，导致另一平台被迫下线。
+
+### 解决方案
+
+使用不同的本地域名访问两个平台，使 cookie 按域名隔离。
+
+### 配置步骤
+
+**1. 添加 hosts 映射**
+
+```bash
+sudo tee -a /etc/hosts << EOF
+
+# letter-manage 平台本地域名（多平台 cookie 隔离）
+127.0.0.1	admin.letter.local
+127.0.0.1	citizen.letter.local
+EOF
+```
+
+**2. 访问方式**
+
+| 平台 | 本地地址 | Cookie 域 |
+|------|---------|-----------|
+| 管理端（admin） | http://admin.letter.local:5173 | `admin.letter.local` |
+| 市民端（citizen） | http://citizen.letter.local:5174 | `citizen.letter.local` |
+| 后端 API | http://localhost:8080 | （通过前端代理） |
+
+**3. CORS 配置**
+
+`config.yaml` 中的 `cors.allowed_origins` 已预置本地域名地址，如需添加更多域名，请在此处追加。

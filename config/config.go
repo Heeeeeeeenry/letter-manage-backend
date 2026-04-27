@@ -83,6 +83,13 @@ func Load(path string) error {
 	}
 
 	GlobalConfig = cfg
+
+	// LLM_API_KEY 环境变量覆盖 API Key（优先级最高）
+	if envKey := os.Getenv("LLM_API_KEY"); envKey != "" {
+		GlobalConfig.LLM.APIKey = envKey
+		log.Println("LLM_API_KEY: applied environment override")
+	}
+
 	return nil
 }
 

@@ -20,8 +20,8 @@ type Letter struct {
 	CurrentStatus   string    `json:"current_status" gorm:"column:current_status;size:64"`
 	CurrentOperator string    `json:"current_operator" gorm:"column:current_operator;size:64"`
 	DeadlineAt    *time.Time `json:"deadline_at" gorm:"column:deadline_at"`
-	CreatedAt     time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt     time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
+	CreatedAt     *time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt     *time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
 }
 
 func (Letter) TableName() string { return "letters" }
@@ -31,8 +31,8 @@ type LetterFlow struct {
 	ID          uint      `json:"id" gorm:"primaryKey;autoIncrement"`
 	LetterNo    string    `json:"letter_no" gorm:"column:letter_no;index;size:64;not null"`
 	FlowRecords JSONRaw   `json:"flow_records" gorm:"column:flow_records;type:json"`
-	CreatedAt   time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt   time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
+	CreatedAt   *time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt   *time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
 }
 
 func (LetterFlow) TableName() string { return "letter_flows" }

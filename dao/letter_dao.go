@@ -328,14 +328,12 @@ func GetDispatchList(unitName string, permLevel string, page, pageSize int) ([]m
 func GetProcessingList(unitName string, permLevel string, page, pageSize int) ([]model.Letter, int64, error) {
 	query := DB.Model(&model.Letter{})
 
-	// 市局可看「预处理」（未下发）和本单位已下发的信件
+	// 市局可看所有已下发、处理中的信件
 	// 区县局/基层单位只可看本单位已下发的信件
 	if permLevel == "CITY" {
 		query = query.Where(
-			"(current_status = ?) OR (current_unit = ? AND current_status IN ?)",
-			model.StatusPreProcess,
-			unitName,
-			[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch},
+			"current_status IN ?",
+			[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch, model.StatusPendingDistrictAudit, model.StatusPendingCityAudit},
 		)
 	} else {
 		query = query.Where(

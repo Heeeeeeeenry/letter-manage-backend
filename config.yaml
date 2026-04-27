@@ -14,7 +14,7 @@ database:
 
 llm:
   api_url: https://api.deepseek.com/v1/chat/completions
-  api_key: "sk-dd2f0770cd414970ac2a16315a0c3c7a"
+  # api_key 由 LLM_API_KEY 环境变量提供，不要在配置文件中写死
   model: deepseek-chat
   timeout: 120
 

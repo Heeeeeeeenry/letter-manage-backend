@@ -224,7 +224,7 @@ environments:
 
 ## LLM_API_KEY 环境变量
 
-DeepSeek API Key 统一通过 `LLM_API_KEY` 环境变量设置，**优先级高于 config.yaml**。多个后端项目共用同一个变量，避免重复配置。
+DeepSeek API Key **只能通过** `LLM_API_KEY` 环境变量设置，配置文件（`config.yaml`）中不包含 api_key 字段。
 
 ### 配置方式
 
@@ -238,11 +238,7 @@ export LLM_API_KEY="sk-your-key-here"
 ./letter-manage-server
 ```
 
-### 优先级
-
-`LLM_API_KEY` 环境变量 > `config.yaml` 中的 `llm.api_key`
-
-启动时日志会打印 `LLM_API_KEY: applied environment override` 表示已从环境变量读取。
+> 启动时日志会打印 `LLM_API_KEY: applied environment override` 表示已生效。若未设置，AI 功能将不可用。
 
 ---
 

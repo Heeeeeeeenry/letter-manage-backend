@@ -18,6 +18,7 @@ type Letter struct {
 	SpecialTags     JSONRaw   `json:"special_tags" gorm:"column:special_tags;type:json"`
 	CurrentUnitID     *uint     `json:"current_unit_id" gorm:"column:current_unit_id"`
 	CurrentUnitObj    *Unit     `json:"current_unit,omitempty" gorm:"foreignKey:CurrentUnitID"`
+	HandlerUserID     *uint     `json:"handler_user_id" gorm:"column:handler_user_id"`
 	CurrentStatus     string    `json:"current_status" gorm:"column:current_status;size:64"`
 	CurrentOperator   string    `json:"current_operator" gorm:"column:current_operator;size:64"`
 	DeadlineAt    *time.Time `json:"deadline_at" gorm:"column:deadline_at"`

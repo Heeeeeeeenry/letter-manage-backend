@@ -510,7 +510,7 @@ func GetDispatchList(unitName string, permLevel string, page, pageSize int) ([]m
 	return letters, total, err
 }
 
-func GetProcessingList(unitName string, permLevel string, page, pageSize int) ([]model.Letter, int64, error) {
+func GetProcessingList(unitName string, permLevel string, page, pageSize int, handlerUserID ...uint) ([]model.Letter, int64, error) {
 	query := DB.Model(&model.Letter{})
 
 	// 市局可看待审核、处理中的信件（不含已下发走的）
@@ -522,13 +522,14 @@ func GetProcessingList(unitName string, permLevel string, page, pageSize int) ([
 			[]string{model.StatusProcessing, model.StatusPendingDistrictAudit, model.StatusPendingCityAudit},
 		)
 	} else if permLevel == "DISTRICT" {
-		// 区县局：可见本单位及下属单位的待处理信件（不含尚未下发的已下发状态）
+		// 区县局：可见本单位及下属单位的待处理信件
+		// 包含：正在处理、市局越级下发、待审核、以及指定给该用户的已下发信件
 		unitIDs := UnitNameToIDs(unitName)
 		if len(unitIDs) > 0 {
 			query = query.Where(
 				"current_unit_id IN ? AND current_status IN ?",
 				unitIDs,
-				[]string{model.StatusProcessing, model.StatusCityDirectDispatch, model.StatusPendingDistrictAudit},
+				[]string{model.StatusProcessing, model.StatusCityDirectDispatch, model.StatusPendingDistrictAudit, model.StatusDispatched},
 			)
 		} else {
 			query = query.Where("1 = 0")
@@ -545,6 +546,10 @@ func GetProcessingList(unitName string, permLevel string, page, pageSize int) ([
 		} else {
 			query = query.Where("1 = 0")
 		}
+	}
+	// 处理人过滤：显示分配给我的 + 未分配的信件
+	if len(handlerUserID) > 0 && handlerUserID[0] > 0 {
+		query = query.Where("(handler_user_id = ? OR handler_user_id IS NULL)", handlerUserID[0])
 	}
 	var total int64
 	if err := query.Count(&total).Error; err != nil {

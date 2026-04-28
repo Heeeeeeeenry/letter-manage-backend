@@ -34,6 +34,13 @@ func HasDispatchLevelUsersInUnit(unitID uint) bool {
 	return count > 0
 }
 
+// GetActiveUsersByUnitID 获取某单位下可指派为处理人的用户（OFFICER 或同级 DISTRICT）
+func GetActiveUsersByUnitID(unitID uint) ([]model.PoliceUser, error) {
+	var users []model.PoliceUser
+	err := DB.Where("unit_id = ? AND is_active = true AND permission_level IN ('DISTRICT', 'OFFICER')", unitID).Order("permission_level DESC, name ASC").Find(&users).Error
+	return users, err
+}
+
 func CreateSession(session *model.UserSession) error {
 	return DB.Create(session).Error
 }
@@ -222,8 +229,8 @@ func GetSubordinateUnitIDs(unitID uint) []uint {
 	for _, u := range allUnits {
 		var match bool
 		if unit.Level3 != "" {
-			// 三级单位：匹配相同 level1+level2+level3（自身及同级别单位）
-			match = u.Level1 == unit.Level1 && u.Level2 == unit.Level2 && u.Level3 == unit.Level3
+			// 三级单位（如 分局/桃城分局/民意智感中心）：包含同 Level1+Level2 下的所有单位
+			match = u.Level1 == unit.Level1 && u.Level2 == unit.Level2
 		} else if unit.Level2 != "" {
 			// 二级单位：匹配相同 level1+level2（下属三级单位及同级二级单位）
 			match = u.Level1 == unit.Level1 && u.Level2 == unit.Level2

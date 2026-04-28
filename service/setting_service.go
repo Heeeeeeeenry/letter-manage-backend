@@ -455,6 +455,15 @@ func ResetPassword(args map[string]interface{}) error {
 	return dao.UpdateUser(user)
 }
 
+// GetUsersInUnit 获取某单位下的活跃用户列表（用于下发选人）
+func GetUsersInUnit(args map[string]interface{}) ([]model.PoliceUser, error) {
+	idF, ok := args["unit_id"].(float64)
+	if !ok {
+		return nil, errors.New("unit_id required")
+	}
+	return dao.GetActiveUsersByUnitID(uint(idF))
+}
+
 // DispatchPermissions
 
 func GetDispatchPermissions() ([]model.DispatchPermission, error) {

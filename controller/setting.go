@@ -119,6 +119,14 @@ func SettingController(c *gin.Context) {
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(data))
 
+	case "get_users_in_unit":
+		users, err := service.GetUsersInUnit(req.Args)
+		if err != nil {
+			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
+			return
+		}
+		c.JSON(http.StatusOK, model.SuccessResp(users))
+
 	case "create_user":
 		if user.PermissionLevel == model.PermissionOfficer {
 			c.JSON(http.StatusOK, model.ErrorResp("无权限"))

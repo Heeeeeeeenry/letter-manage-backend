@@ -111,7 +111,7 @@ func handleGetDispatchList(c *gin.Context, args map[string]interface{}, user *mo
 }
 
 func handleGetProcessingList(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
-	data, err := service.GetProcessingList(user.UnitName, string(user.PermissionLevel), args)
+	data, err := service.GetProcessingList(user.UnitName, string(user.PermissionLevel), args, user.ID)
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return
@@ -134,7 +134,7 @@ func handleGetDetail(c *gin.Context, args map[string]interface{}, user *model.Po
 		c.JSON(http.StatusOK, model.ErrorResp("letter_no required"))
 		return
 	}
-	data, err := service.GetLetterDetail(letterNo, user.UnitName, string(user.PermissionLevel))
+	data, err := service.GetLetterDetail(letterNo, user.UnitName, string(user.PermissionLevel), user.UnitID)
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return

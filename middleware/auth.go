@@ -26,6 +26,11 @@ func AuthRequired() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		if !session.User.IsActive {
+			c.JSON(http.StatusUnauthorized, model.ErrorResp("该用户已被禁用，请联系管理员"))
+			c.Abort()
+			return
+		}
 		c.Set(UserKey, &session.User)
 		c.Set(SessionKey, sessionKey)
 		c.Next()

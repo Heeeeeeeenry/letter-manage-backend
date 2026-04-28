@@ -254,7 +254,7 @@ type StatusCount struct {
 	Count  int64  `json:"count"`
 }
 
-func GetLetterStatusStats(startTime, endTime *time.Time) ([]StatusCount, error) {
+func GetLetterStatusStats(startTime, endTime *time.Time, unitNames []string) ([]StatusCount, error) {
 	var results []StatusCount
 	query := DB.Model(&model.Letter{}).
 		Select("current_status as status, count(*) as count")
@@ -263,6 +263,9 @@ func GetLetterStatusStats(startTime, endTime *time.Time) ([]StatusCount, error) 
 	}
 	if endTime != nil {
 		query = query.Where("received_at <= ?", endTime)
+	}
+	if len(unitNames) > 0 {
+		query = query.Where("current_unit IN ?", unitNames)
 	}
 	err := query.Group("current_status").
 		Scan(&results).Error
@@ -274,11 +277,14 @@ type ChannelCount struct {
 	Count   int64  `json:"count"`
 }
 
-func GetLetterChannelStats() ([]ChannelCount, error) {
+func GetLetterChannelStats(unitNames []string) ([]ChannelCount, error) {
 	var results []ChannelCount
-	err := DB.Model(&model.Letter{}).
-		Select("channel, count(*) as count").
-		Group("channel").
+	query := DB.Model(&model.Letter{}).
+		Select("channel, count(*) as count")
+	if len(unitNames) > 0 {
+		query = query.Where("current_unit IN ?", unitNames)
+	}
+	err := query.Group("channel").
 		Scan(&results).Error
 	return results, err
 }
@@ -288,13 +294,42 @@ type MonthCount struct {
 	Count int64  `json:"count"`
 }
 
-func GetLetterMonthStats() ([]MonthCount, error) {
+func GetLetterMonthStats(unitNames []string) ([]MonthCount, error) {
 	var results []MonthCount
-	err := DB.Model(&model.Letter{}).
-		Select("DATE_FORMAT(received_at, '%Y-%m') as month, count(*) as count").
-		Group("month").
+	query := DB.Model(&model.Letter{}).
+		Select("DATE_FORMAT(received_at, '%Y-%m') as month, count(*) as count")
+	if len(unitNames) > 0 {
+		query = query.Where("current_unit IN ?", unitNames)
+	}
+	err := query.Group("month").
 		Order("month ASC").
 		Limit(12).
+		Scan(&results).Error
+	return results, err
+}
+
+type CategoryCount struct {
+	Category string `json:"category"`
+	Count    int64  `json:"count"`
+}
+
+func GetLetterCategoryStats(startTime, endTime *time.Time, unitNames []string) ([]CategoryCount, error) {
+	var results []CategoryCount
+	query := DB.Model(&model.Letter{}).
+		Select("category_l1 as category, count(*) as count").
+		Where("category_l1 != ''")
+	if startTime != nil {
+		query = query.Where("received_at >= ?", startTime)
+	}
+	if endTime != nil {
+		query = query.Where("received_at <= ?", endTime)
+	}
+	if len(unitNames) > 0 {
+		query = query.Where("current_unit IN ?", unitNames)
+	}
+	err := query.Group("category_l1").
+		Order("count DESC").
+		Limit(10).
 		Scan(&results).Error
 	return results, err
 }
@@ -305,7 +340,8 @@ func GetDispatchList(unitName string, permLevel string, page, pageSize int) ([]m
 	case "CITY":
 		query = query.Where("current_status = ?", model.StatusPreProcess)
 	case "DISTRICT":
-		query = query.Where("current_status = ? AND current_unit = ?", model.StatusCityDispatched, unitName)
+		// 区县局不下发信件，下发工作台无数据
+		query = query.Where("1 = 0")
 	default:
 		query = query.Where("1 = 0")
 	}
@@ -328,17 +364,36 @@ func GetDispatchList(unitName string, permLevel string, page, pageSize int) ([]m
 func GetProcessingList(unitName string, permLevel string, page, pageSize int) ([]model.Letter, int64, error) {
 	query := DB.Model(&model.Letter{})
 
-	// 市局可看所有已下发、处理中的信件
-	// 区县局/基层单位只可看本单位已下发的信件
+	// 市局可看待审核、处理中的信件（不含已下发走的）
+	// 区县局可看本单位及下属单位的待处理信件
+	// 基层单位只可看本单位已下发的信件
 	if permLevel == "CITY" {
 		query = query.Where(
 			"current_status IN ?",
-			[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch, model.StatusPendingDistrictAudit, model.StatusPendingCityAudit},
+			[]string{model.StatusProcessing, model.StatusPendingDistrictAudit, model.StatusPendingCityAudit},
 		)
+	} else if permLevel == "DISTRICT" {
+		// 区县局：可见市局下发至本单位及下属单位的待处理信件
+		subUnits := GetSubordinateUnitNames(unitName)
+		if len(subUnits) > 0 {
+			query = query.Where(
+				"current_unit IN ? AND current_status IN ?",
+				subUnits,
+				[]string{model.StatusCityDispatched, model.StatusProcessing, model.StatusCityDirectDispatch, model.StatusPendingDistrictAudit},
+			)
+		} else {
+			query = query.Where(
+				"current_unit = ? AND current_status IN ?",
+				unitName,
+				[]string{model.StatusCityDispatched, model.StatusProcessing, model.StatusCityDirectDispatch, model.StatusPendingDistrictAudit},
+			)
+		}
 	} else {
+		// OFFICER：可见本单位的已下发、处理中、越级下发信件
+		shortName := normalizeUnitName(unitName)
 		query = query.Where(
-			"current_unit = ? AND current_status IN ?",
-			unitName,
+			"(current_unit = ? OR current_unit = ?) AND current_status IN ?",
+			unitName, shortName,
 			[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch},
 		)
 	}
@@ -362,11 +417,15 @@ func GetAuditList(unitName string, permLevel string, page, pageSize int) ([]mode
 	query := DB.Model(&model.Letter{})
 	switch permLevel {
 	case "CITY":
-		// 市局：查看分县局已审核的信件 + 越级下发后基层已反馈的信件
-		query = query.Where("current_status IN ?", []string{model.StatusPendingCityAudit, model.StatusPendingDistrictAudit})
+		// 市局：查看"待核查" + 分县局已审核的信件
+		query = query.Where("current_status IN ?", []string{model.StatusPendingVerification, model.StatusPendingCityAudit, model.StatusPendingDistrictAudit})
 	case "DISTRICT":
-		// 分县局：查看本单位科室已反馈、待分县局审核的信件
-		query = query.Where("current_status = ? AND current_unit = ?", model.StatusPendingDistrictAudit, unitName)
+		// 分县局：查看下发至本单位的待核查信件 + 本单位科室已反馈的信件
+		query = query.Where(
+			"(current_status = ? AND current_unit = ?) OR (current_status = ? AND current_unit = ?)",
+			model.StatusPendingVerification, unitName,
+			model.StatusPendingDistrictAudit, unitName,
+		)
 	default:
 		query = query.Where("1 = 0")
 	}

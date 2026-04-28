@@ -13,8 +13,8 @@ database:
   max_open_conns: 100
 
 llm:
-  api_url: https://api.deepseek.com/v1/chat/completions
   # api_key 由 LLM_API_KEY 环境变量提供，不要在配置文件中写死
+  api_url: https://api.deepseek.com/v1/chat/completions
   model: deepseek-chat
   timeout: 120
 

@@ -22,6 +22,7 @@ type PoliceUser struct {
 	UnitName        string          `json:"unit_name" gorm:"column:unit_name;size:128"`
 	PermissionLevel PermissionLevel `json:"permission_level" gorm:"column:permission_level;type:enum('CITY','DISTRICT','OFFICER');not null"`
 	IsActive        bool            `json:"is_active" gorm:"column:is_active;default:true"`
+	IsAdmin         bool            `json:"is_admin" gorm:"column:is_admin;default:false"`
 	CreatedAt       time.Time       `json:"created_at" gorm:"column:created_at;autoCreateTime"`
 	LastLogin       *time.Time      `json:"last_login" gorm:"column:last_login"`
 }

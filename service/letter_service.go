@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"letter-manage-backend/dao"
@@ -97,6 +98,13 @@ func GetLetterList(args map[string]interface{}, unitName string, permLevel strin
 		"page":      filter.Page,
 		"page_size": filter.PageSize,
 	}, nil
+}
+
+// normalizeUnitName 将全路径单位名转为短名
+// "分局 / 桃城分局 / 民意智感中心" → "民意智感中心"
+func normalizeUnitName(name string) string {
+	parts := strings.Split(name, " / ")
+	return strings.TrimSpace(parts[len(parts)-1])
 }
 
 // getSubordinateUnitNames 获取某单位及其下属所有单位的短名称列表
@@ -215,6 +223,8 @@ func GetLetterDetail(letterNo string, unitName string, permLevel string) (map[st
 
 // canAccessLetter 检查用户是否有权访问某封信件
 func canAccessLetter(letter model.Letter, unitName string, permLevel string) bool {
+	// 归一化单位名：处理全路径格式
+	normalizedUnit := normalizeUnitName(unitName)
 	switch permLevel {
 	case "CITY":
 		return true
@@ -226,10 +236,10 @@ func canAccessLetter(letter model.Letter, unitName string, permLevel string) boo
 				return true
 			}
 		}
-		return letter.CurrentUnit == unitName
+		return letter.CurrentUnit == unitName || letter.CurrentUnit == normalizedUnit
 	default:
-		// OFFICER 只能访问本单位的信件
-		return letter.CurrentUnit == unitName
+		// OFFICER 只能访问本单位的信件（支持全路径和短名两种格式）
+		return letter.CurrentUnit == unitName || letter.CurrentUnit == normalizedUnit
 	}
 }
 
@@ -381,11 +391,13 @@ func UpdateLetterStatus(args map[string]interface{}, operator *model.PoliceUser)
 
 	// append flow record
 	flowRecord := map[string]interface{}{
-		"status":    status,
-		"unit":      unitName,
-		"remark":    remark,
-		"operator":  operator.Name,
-		"timestamp": time.Now().Format("2006-01-02 15:04:05"),
+		"status":        status,
+		"unit":          unitName,
+		"remark":        remark,
+		"operator":      operator.Name,
+		"operator_id":   operator.PoliceNumber,
+		"operator_unit": operator.UnitName,
+		"timestamp":     time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, flowRecord)
 }
@@ -448,20 +460,21 @@ func DispatchLetter(args map[string]interface{}, operator *model.PoliceUser) err
 	}
 
 	record := map[string]interface{}{
-		"action":      "dispatch",
-		"status":      newStatus,
-		"from_unit":   letter.CurrentUnit,
-		"to_unit":     targetUnit,
-		"remark":      remark,
-		"operator":    operator.Name,
-		"operator_id": operator.ID,
-		"timestamp":   time.Now().Format("2006-01-02 15:04:05"),
+		"action":         "dispatch",
+		"status":         newStatus,
+		"from_unit":      letter.CurrentUnit,
+		"to_unit":        targetUnit,
+		"remark":         remark,
+		"operator":       operator.Name,
+		"operator_id":    operator.PoliceNumber,
+		"operator_unit":  operator.UnitName,
+		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
 	if err := appendFlowRecord(letterNo, record); err != nil {
 		return err
 	}
-	// 每次下发重新设置 30 分钟处理倒计时
-	deadline := time.Now().Add(30 * time.Minute)
+	// 每次下发重新设置 4 个工作日处理倒计时（扣除节假日）
+	deadline := GetWorkdayDeadline(time.Now(), 4)
 	return dao.UpdateLetterDeadline(letterNo, &deadline)
 }
 
@@ -526,11 +539,13 @@ func MarkInvalid(args map[string]interface{}, operator *model.PoliceUser) error 
 		return err
 	}
 	record := map[string]interface{}{
-		"action":    "mark_invalid",
-		"status":    model.StatusInvalid,
-		"remark":    remark,
-		"operator":  operator.Name,
-		"timestamp": time.Now().Format("2006-01-02 15:04:05"),
+		"action":         "mark_invalid",
+		"status":         model.StatusInvalid,
+		"remark":         remark,
+		"operator":       operator.Name,
+		"operator_id":    operator.PoliceNumber,
+		"operator_unit":  operator.UnitName,
+		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, record)
 }
@@ -541,6 +556,7 @@ func SubmitProcessing(args map[string]interface{}, operator *model.PoliceUser) e
 		return errors.New("letter_no required")
 	}
 	remark, _ := args["remark"].(string)
+	contactFeedback, _ := args["contact_feedback"].(string)
 
 	// 获取流转记录，追溯上次下发的来源单位（上级审核单位）
 	letter, err := dao.GetLetterByNo(letterNo)
@@ -571,9 +587,9 @@ func SubmitProcessing(args map[string]interface{}, operator *model.PoliceUser) e
 		}
 	}
 
-	// 更新状态，同时将 current_unit 设为上级审核单位
+	// 更新状态为"待核查"，同时将 current_unit 设为上级审核单位
 	updates := map[string]interface{}{
-		"current_status": model.StatusPendingDistrictAudit,
+		"current_status": model.StatusPendingVerification,
 	}
 	if parentUnit != "" {
 		updates["current_unit"] = parentUnit
@@ -582,14 +598,31 @@ func SubmitProcessing(args map[string]interface{}, operator *model.PoliceUser) e
 		return err
 	}
 
+	// 不要修改 deadline_at — 保持下发的 4 个工作日倒计时不变
+
+	// 保存联系反馈信息到 feedbacks 表
+	if contactFeedback != "" {
+		fbInfo, _ := json.Marshal(map[string]interface{}{
+			"type":    "contact_feedback",
+			"content": contactFeedback,
+		})
+		fb := &model.Feedback{
+			LetterNo:     letterNo,
+			FeedbackInfo: model.JSONRaw(fbInfo),
+		}
+		dao.CreateFeedback(fb)
+	}
+
 	record := map[string]interface{}{
-		"action":    "submit_processing",
-		"status":    model.StatusPendingDistrictAudit,
-		"remark":    remark,
-		"operator":  operator.Name,
-		"from_unit": letter.CurrentUnit,
-		"to_unit":   parentUnit,
-		"timestamp": time.Now().Format("2006-01-02 15:04:05"),
+		"action":         "submit_processing",
+		"status":         model.StatusPendingVerification,
+		"remark":         remark,
+		"operator":       operator.Name,
+		"operator_id":    operator.PoliceNumber,
+		"operator_unit":  operator.UnitName,
+		"from_unit":      letter.CurrentUnit,
+		"to_unit":        parentUnit,
+		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, record)
 }
@@ -604,12 +637,14 @@ func HandleBySelf(args map[string]interface{}, operator *model.PoliceUser) error
 		return err
 	}
 	record := map[string]interface{}{
-		"action":    "handle_by_self",
-		"status":    model.StatusProcessing,
-		"unit":      operator.UnitName,
-		"remark":    remark,
-		"operator":  operator.Name,
-		"timestamp": time.Now().Format("2006-01-02 15:04:05"),
+		"action":         "handle_by_self",
+		"status":         model.StatusProcessing,
+		"unit":           operator.UnitName,
+		"remark":         remark,
+		"operator":       operator.Name,
+		"operator_id":    operator.PoliceNumber,
+		"operator_unit":  operator.UnitName,
+		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, record)
 }
@@ -680,16 +715,17 @@ func ReturnLetter(args map[string]interface{}, operator *model.PoliceUser) error
 
 	// 追加退回记录（保留完整历史）
 	record := map[string]interface{}{
-		"action":        "return_letter",
-		"status":        prevStatus,
-		"from_unit":     letter.CurrentUnit,
-		"to_unit":       prevUnit,
-		"from_operator": letter.CurrentOperator,
-		"to_operator":   prevOperator,
-		"remark":        remark,
-		"operator":      operator.Name,
-		"operator_id":   operator.ID,
-		"timestamp":     time.Now().Format("2006-01-02 15:04:05"),
+		"action":         "return_letter",
+		"status":         prevStatus,
+		"from_unit":      letter.CurrentUnit,
+		"to_unit":        prevUnit,
+		"from_operator":  letter.CurrentOperator,
+		"to_operator":    prevOperator,
+		"remark":         remark,
+		"operator":       operator.Name,
+		"operator_id":    operator.PoliceNumber,
+		"operator_unit":  operator.UnitName,
+		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, record)
 }
@@ -732,15 +768,67 @@ func AuditReject(args map[string]interface{}, operator *model.PoliceUser) error 
 		return errors.New("letter_no required")
 	}
 	remark, _ := args["remark"].(string)
-	if err := dao.UpdateLetterStatus(letterNo, model.StatusProcessing, ""); err != nil {
+
+	// 核查不通过：追溯流转记录找到原始处理单位（from_unit 或处理民警单位）
+	letter, err := dao.GetLetterByNo(letterNo)
+	if err != nil {
 		return err
 	}
+	if letter == nil {
+		return errors.New("letter not found")
+	}
+
+	// 从流转记录中追溯上次 submit_processing 操作的 from_unit
+	var processingUnit string
+	flow, err := dao.GetFlowByLetterNo(letterNo)
+	if err != nil {
+		return err
+	}
+	if flow != nil {
+		var records []map[string]interface{}
+		if err := json.Unmarshal([]byte(flow.FlowRecords), &records); err == nil {
+			// 倒序查找最后一次 submit_processing 操作，获取 from_unit（原始处理单位）
+			for i := len(records) - 1; i >= 0; i-- {
+				r := records[i]
+				action, _ := r["action"].(string)
+				if action == "submit_processing" {
+					processingUnit, _ = r["from_unit"].(string)
+					break
+				}
+			}
+		}
+	}
+
+	// 如果追溯不到，使用当前状态前的单位
+	if processingUnit == "" {
+		processingUnit = letter.CurrentUnit
+	}
+
+	// 退回处理单位，状态恢复为"处理中"
+	updates := map[string]interface{}{
+		"current_status": model.StatusProcessing,
+		"current_unit":   processingUnit,
+	}
+	if err := dao.UpdateLetterFields(letterNo, updates); err != nil {
+		return err
+	}
+
+	// 重新设置 deadline 为 4 个工作日（从退回时重新计时）
+	deadline := GetWorkdayDeadline(time.Now(), 4)
+	if err := dao.UpdateLetterDeadline(letterNo, &deadline); err != nil {
+		return err
+	}
+
 	record := map[string]interface{}{
-		"action":    "audit_reject",
-		"status":    model.StatusProcessing,
-		"remark":    remark,
-		"operator":  operator.Name,
-		"timestamp": time.Now().Format("2006-01-02 15:04:05"),
+		"action":         "audit_reject",
+		"status":         model.StatusProcessing,
+		"remark":         remark,
+		"operator":       operator.Name,
+		"operator_id":    operator.PoliceNumber,
+		"operator_unit":  operator.UnitName,
+		"from_unit":      letter.CurrentUnit,
+		"to_unit":        processingUnit,
+		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, record)
 }
@@ -772,19 +860,111 @@ func GetStatistics(unitName string, permLevel string, period string) (map[string
 		endTime = &t
 	}
 
-	statusStats, err := dao.GetLetterStatusStats(startTime, endTime)
+	// 根据权限计算可访问的单位列表
+	var unitNames []string
+	switch permLevel {
+	case "CITY":
+		// 市局：可见所有数据，不过滤
+	case "DISTRICT":
+		// 区县局：可见本单位及下属单位的数据
+		subUnits := dao.GetSubordinateUnitNames(unitName)
+		if len(subUnits) > 0 {
+			unitNames = subUnits
+		} else {
+			unitNames = []string{unitName}
+		}
+	default:
+		// OFFICER：仅可见本单位数据
+		unitNames = []string{unitName}
+	}
+
+	statusStats, err := dao.GetLetterStatusStats(startTime, endTime, unitNames)
 	if err != nil {
 		return nil, err
 	}
-	channelStats, err := dao.GetLetterChannelStats()
+	channelStats, err := dao.GetLetterChannelStats(unitNames)
 	if err != nil {
 		return nil, err
 	}
-	monthStats, err := dao.GetLetterMonthStats()
+	monthStats, err := dao.GetLetterMonthStats(unitNames)
 	if err != nil {
 		return nil, err
 	}
+	catStats, err := dao.GetLetterCategoryStats(startTime, endTime, unitNames)
+	if err != nil {
+		return nil, err
+	}
+
+	// 构建 summary 统计
+	var total int64
+	var preprocessCount, processingCount, doneCount int64
+	for _, s := range statusStats {
+		total += s.Count
+		switch s.Status {
+		case model.StatusPreProcess:
+			preprocessCount = s.Count
+		case model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch:
+			processingCount += s.Count
+		case model.StatusDone:
+			doneCount = s.Count
+		case model.StatusInvalid:
+			// skip
+		default:
+			processingCount += s.Count
+		}
+	}
+
+	// 构建状态分布数组
+	statusDistribution := []map[string]interface{}{}
+	for _, s := range statusStats {
+		if s.Status == model.StatusInvalid {
+			statusDistribution = append(statusDistribution, map[string]interface{}{
+				"name":  "已无效",
+				"value": s.Count,
+			})
+		} else {
+			statusDistribution = append(statusDistribution, map[string]interface{}{
+				"name":  s.Status,
+				"value": s.Count,
+			})
+		}
+	}
+
+	// 构建趋势数据
+	trendDates := []string{}
+	trendValues := []int64{}
+	for _, m := range monthStats {
+		trendDates = append(trendDates, m.Month)
+		trendValues = append(trendValues, m.Count)
+	}
+
+	// 构建分类统计
+	categories := []string{}
+	catValues := []int64{}
+	for _, c := range catStats {
+		categories = append(categories, c.Category)
+		catValues = append(catValues, c.Count)
+	}
+
+	// 构建来源分布
+	sourceDistribution := []map[string]interface{}{}
+	for _, ch := range channelStats {
+		sourceDistribution = append(sourceDistribution, map[string]interface{}{
+			"name":  ch.Channel,
+			"value": ch.Count,
+		})
+	}
+
 	return map[string]interface{}{
+		"信件总量":   total,
+		"预处理":    preprocessCount,
+		"处理中":    processingCount,
+		"已完成":    doneCount,
+		"状态分布":   statusDistribution,
+		"趋势":     map[string]interface{}{"dates": trendDates, "values": trendValues},
+		"分类统计":   map[string]interface{}{"categories": categories, "values": catValues},
+		"来源分布":   sourceDistribution,
+		// 保留原始数据以备后用
 		"status_stats":  statusStats,
 		"channel_stats": channelStats,
 		"month_stats":   monthStats,

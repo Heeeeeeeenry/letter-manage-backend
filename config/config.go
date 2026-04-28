@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -153,4 +154,19 @@ func mergeOverride(dst *Config, src *EnvOverride) {
 
 func Get() *Config {
 	return GlobalConfig
+}
+
+// StartAutoReload 启动定时重载配置，每1分钟重新读取配置文件
+func StartAutoReload(path string) {
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := Load(path); err != nil {
+				log.Printf("auto-reload config failed: %v", err)
+			} else {
+				log.Println("config auto-reloaded successfully")
+			}
+		}
+	}()
 }

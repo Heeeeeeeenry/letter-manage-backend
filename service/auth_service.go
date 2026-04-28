@@ -41,7 +41,7 @@ func Login(policeNumber, password string, rememberMe bool, ip, userAgent string)
 		return nil, err
 	}
 	if !user.IsActive {
-		return nil, errors.New("账号已禁用")
+		return nil, errors.New("该用户已被禁用，请联系管理员")
 	}
 	hashed := HashPassword(password)
 	if user.PasswordHash != hashed {

@@ -115,6 +115,7 @@ const (
 	StatusCityDirectDispatch   = "市局越级下发"
 	StatusDispatched           = "已下发至处理单位"
 	StatusProcessing           = "处理中"
+	StatusPendingVerification  = "待核查"
 	StatusPendingDistrictAudit = "待分县局/支队审核"
 	StatusPendingCityAudit     = "待市局审核"
 	StatusDone                 = "已办结"

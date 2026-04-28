@@ -1,6 +1,7 @@
 package dao
 
 import (
+	"strings"
 	"time"
 
 	"letter-manage-backend/model"
@@ -70,9 +71,13 @@ func GetUserList(page, pageSize int, unitFilter string, permLevel string) ([]mod
 	offset := (page - 1) * pageSize
 	query := DB.Model(&model.PoliceUser{})
 	if unitFilter != "" && permLevel == "DISTRICT" {
+		// 区县局：看到本单位本级用户 + 下属科所队用户，但排除 CITY 级别用户
 		subUnits := GetSubordinateUnitNames(unitFilter)
 		if len(subUnits) > 0 {
-			query = query.Where("unit_name IN ?", subUnits)
+			query = query.Where(
+				"(unit_name = ?) OR (unit_name IN ? AND permission_level != 'CITY')",
+				unitFilter, subUnits,
+			)
 		} else {
 			query = query.Where("unit_name = ?", unitFilter)
 		}
@@ -159,15 +164,27 @@ func GetUnitsWithFilter(page, pageSize int, searchKeyword, filterLevel1, filterL
 
 	return units, total, err
 }
+// normalizeUnitName 将全路径单位名转为短名
+// "分局 / 桃城分局 / 民意智感中心" → "民意智感中心"
+// "民意智感中心" → "民意智感中心"（不变）
+func normalizeUnitName(name string) string {
+	parts := strings.Split(name, " / ")
+	return strings.TrimSpace(parts[len(parts)-1])
+}
+
+// GetSubordinateUnitNames 获取某单位及其下属所有单位的短名称列表
+// unitName 支持全路径格式（如"分局 / 桃城分局 / 民意智感中心"）和短名格式
 func GetSubordinateUnitNames(unitName string) []string {
 	allUnits, err := GetAllUnits()
 	if err != nil {
 		return nil
 	}
+	// 归一化：提取最后一段作为匹配依据
+	shortName := normalizeUnitName(unitName)
 	var names []string
 	seen := map[string]bool{}
 	for _, u := range allUnits {
-		if u.Level1 == unitName || u.Level2 == unitName || u.Level3 == unitName {
+		if u.Level1 == shortName || u.Level2 == shortName || u.Level3 == shortName {
 			shortName := u.Level3
 			if shortName == "" {
 				shortName = u.Level2

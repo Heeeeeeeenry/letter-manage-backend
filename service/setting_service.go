@@ -254,35 +254,21 @@ func GetUserList(args map[string]interface{}, currentUnitName string, permLevel 
 		if user.IsActive {
 			statusText = "已激活"
 		}
-		// 权限级别中文映射
-		permissionLevelChinese := "基层单位"
-		switch user.PermissionLevel {
-		case model.PermissionCity:
-			permissionLevelChinese = "市级"
-		case model.PermissionDistrict:
-			permissionLevelChinese = "区级"
-		case model.PermissionOfficer:
-			permissionLevelChinese = "基层单位"
-		}
 		mappedUsers[i] = map[string]interface{}{
-			"id":           user.ID,
-			"姓名":          user.Name,
-			"name":         user.Name,
-			"警号":          user.PoliceNumber,
-			"police_number": user.PoliceNumber,
-			"所属单位":       user.UnitName,
-			"org":          user.UnitName,
-			"unit_name":    user.UnitName,
-			"权限级别":       permissionLevelChinese,
-			"role":         string(user.PermissionLevel),
+			"id":               user.ID,
+			"name":             user.Name,
+			"police_number":    user.PoliceNumber,
+			"unit_name":        user.UnitName,
+			"org":              user.UnitName,
+			"role":             string(user.PermissionLevel),
 			"permission_level": string(user.PermissionLevel),
-			"状态":          statusText,
-			"status":       statusText,
-			"is_active":    user.IsActive,
-			"nickname":     user.Nickname,
-			"phone":        user.Phone,
-			"created_at":   user.CreatedAt,
-			"last_login":   user.LastLogin,
+			"status":           statusText,
+			"is_active":        user.IsActive,
+			"is_admin":         user.IsAdmin,
+			"nickname":         user.Nickname,
+			"phone":            user.Phone,
+			"created_at":       user.CreatedAt,
+			"last_login":       user.LastLogin,
 		}
 	}
 	return map[string]interface{}{
@@ -319,6 +305,9 @@ func CreateUser(args map[string]interface{}) error {
 	}
 	user.PasswordHash = HashPassword(password)
 	user.IsActive = true
+	if v, ok := args["is_admin"].(bool); ok {
+		user.IsAdmin = v
+	}
 	if user.PoliceNumber == "" {
 		return errors.New("police_number required")
 	}
@@ -354,6 +343,9 @@ func UpdateUser(args map[string]interface{}) error {
 	}
 	if v, ok := args["is_active"].(bool); ok {
 		user.IsActive = v
+	}
+	if v, ok := args["is_admin"].(bool); ok {
+		user.IsAdmin = v
 	}
 	return dao.UpdateUser(user)
 }

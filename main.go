@@ -20,6 +20,8 @@ func main() {
 	if err := config.Load("config.yaml"); err != nil {
 		log.Fatalf("load config: %v", err)
 	}
+	// Start auto-reload every 1 minute
+	config.StartAutoReload("config.yaml")
 
 	cfg := config.Get()
 	gin.SetMode(cfg.Server.Mode)

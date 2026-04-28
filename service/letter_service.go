@@ -222,25 +222,57 @@ func GetLetterDetail(letterNo string, unitName string, permLevel string) (map[st
 }
 
 // canAccessLetter 检查用户是否有权访问某封信件
-func canAccessLetter(letter model.Letter, unitName string, permLevel string) bool {
+func canAccessLetter(letter model.Letter, unitName string, permLevel string, unitID ...*uint) bool {
 	// 归一化单位名：处理全路径格式
 	normalizedUnit := normalizeUnitName(unitName)
+	// unit_id 检查：如果 letter 和 user 都有 unit_id 且相同，直接通过
+	if len(unitID) > 0 && unitID[0] != nil && letter.CurrentUnitID != nil && *letter.CurrentUnitID == *unitID[0] {
+		return true
+	}
 	switch permLevel {
 	case "CITY":
 		return true
 	case "DISTRICT":
 		// DISTRICT 可以访问本单位及下属单位的信件
+		// 如果有 unitID，使用 ID 判断
+		if len(unitID) > 0 && unitID[0] != nil {
+			subIDs := dao.GetSubordinateUnitIDs(*unitID[0])
+			if letter.CurrentUnitID != nil {
+				for _, sid := range subIDs {
+					if sid == *letter.CurrentUnitID {
+						return true
+					}
+				}
+			}
+		}
+		// fallback: 通过 CurrentUnitObj 获取单位名称字符串比较
+		letterUnitName := getUnitNameFromObj(letter.CurrentUnitObj)
 		subUnits := dao.GetSubordinateUnitNames(unitName)
 		for _, u := range subUnits {
-			if u == letter.CurrentUnit {
+			if u == letterUnitName {
 				return true
 			}
 		}
-		return letter.CurrentUnit == unitName || letter.CurrentUnit == normalizedUnit
+		return letterUnitName == unitName || letterUnitName == normalizedUnit
 	default:
 		// OFFICER 只能访问本单位的信件（支持全路径和短名两种格式）
-		return letter.CurrentUnit == unitName || letter.CurrentUnit == normalizedUnit
+		letterUnitName := getUnitNameFromObj(letter.CurrentUnitObj)
+		return letterUnitName == unitName || letterUnitName == normalizedUnit
 	}
+}
+
+// getUnitNameFromObj 从 Unit 对象中获取最后一级单位名称
+func getUnitNameFromObj(unit *model.Unit) string {
+	if unit == nil {
+		return ""
+	}
+	if unit.Level3 != "" {
+		return unit.Level3
+	}
+	if unit.Level2 != "" {
+		return unit.Level2
+	}
+	return unit.Level1
 }
 
 // filterLettersByPermission 根据权限过滤信件列表
@@ -281,8 +313,14 @@ func CreateLetter(args map[string]interface{}) (*model.Letter, error) {
 	if v, ok := args["content"].(string); ok {
 		letter.Content = v
 	}
-	if v, ok := args["current_unit"].(string); ok {
-		letter.CurrentUnit = v
+	// 如果传了 current_unit_id，通过 ID 查找单位
+	if v, ok := args["current_unit_id"].(float64); ok {
+		u := uint(v)
+		letter.CurrentUnitID = &u
+		unit, err := dao.GetUnitByID(u)
+		if err == nil && unit != nil {
+			letter.CurrentUnitObj = unit
+		}
 	}
 	letter.CurrentStatus = model.StatusPreProcess
 	if v, ok := args["received_at"].(string); ok && v != "" {
@@ -346,8 +384,14 @@ func UpdateLetter(args map[string]interface{}) error {
 	if v, ok := args["content"].(string); ok {
 		letter.Content = v
 	}
-	if v, ok := args["current_unit"].(string); ok {
-		letter.CurrentUnit = v
+	// 如果传了 current_unit_id，更新 CurrentUnitID
+	if v, ok := args["current_unit_id"].(float64); ok {
+		u := uint(v)
+		letter.CurrentUnitID = &u
+		unit, err := dao.GetUnitByID(u)
+		if err == nil && unit != nil {
+			letter.CurrentUnitObj = unit
+		}
 	}
 	if v, ok := args["current_status"].(string); ok {
 		letter.CurrentStatus = v
@@ -385,7 +429,7 @@ func UpdateLetterStatus(args map[string]interface{}, operator *model.PoliceUser)
 	unitName, _ := args["unit_name"].(string)
 	remark, _ := args["remark"].(string)
 
-	if err := dao.UpdateLetterStatus(letterNo, status, unitName); err != nil {
+	if err := dao.UpdateLetterStatus(letterNo, status); err != nil {
 		return err
 	}
 
@@ -442,11 +486,35 @@ func DispatchLetter(args map[string]interface{}, operator *model.PoliceUser) err
 	}
 
 	var newStatus string
+
+	// 查询 targetUnit 对应的 unit ID，并确定下发级别
+	var targetUnitID *uint
+	var targetHasDispatchLevel bool
+	allUnits, err := dao.GetAllUnits()
+	if err == nil {
+		for _, u := range allUnits {
+			name := u.Level3
+			if name == "" {
+				name = u.Level2
+			}
+			if name == "" {
+				name = u.Level1
+			}
+			if name == targetUnit {
+				targetUnitID = &u.ID
+				// 检查该单位是否有 CITY 或 DISTRICT 级别的用户
+				targetHasDispatchLevel = dao.HasDispatchLevelUsersInUnit(u.ID)
+				break
+			}
+		}
+	}
+
 	switch operator.PermissionLevel {
 	case model.PermissionCity:
-		newStatus = model.StatusCityDispatched
-		// 检查是否越级下发至基层科室所队（Level3 单位）
-		if isStationLevelUnit(targetUnit) {
+		// CITY下发：如果目标单位有区县局及以上用户→待区县局下发；否则→越级下发
+		if targetHasDispatchLevel {
+			newStatus = model.StatusPendingDistrictDispatch
+		} else {
 			newStatus = model.StatusCityDirectDispatch
 		}
 	case model.PermissionDistrict:
@@ -455,14 +523,14 @@ func DispatchLetter(args map[string]interface{}, operator *model.PoliceUser) err
 		return errors.New("无下发权限")
 	}
 
-	if err := dao.UpdateLetterStatus(letterNo, newStatus, targetUnit); err != nil {
+	if err := dao.UpdateLetterStatus(letterNo, newStatus, targetUnitID); err != nil {
 		return err
 	}
 
 	record := map[string]interface{}{
 		"action":         "dispatch",
 		"status":         newStatus,
-		"from_unit":      letter.CurrentUnit,
+		"from_unit":      getUnitNameFromObj(letter.CurrentUnitObj),
 		"to_unit":        targetUnit,
 		"remark":         remark,
 		"operator":       operator.Name,
@@ -487,7 +555,35 @@ func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string) (boo
 		if operator.UnitName == targetUnit {
 			return true, nil
 		}
-		// check units table: target unit's level1 or level2 matches operator's unit
+		// check units table: use unitID if available
+		if operator.UnitID != nil {
+			subUnitIDs := dao.GetSubordinateUnitIDs(*operator.UnitID)
+			if len(subUnitIDs) > 0 {
+				// 查找目标单位的 ID
+				allUnits, err := dao.GetAllUnits()
+				if err != nil {
+					return false, err
+				}
+				for _, u := range allUnits {
+					name := u.Level3
+					if name == "" {
+						name = u.Level2
+					}
+					if name == "" {
+						name = u.Level1
+					}
+					if name == targetUnit {
+						for _, subID := range subUnitIDs {
+							if u.ID == subID {
+								return true, nil
+							}
+						}
+						break
+					}
+				}
+			}
+		}
+		// fallback to string-based check
 		units, err := dao.GetAllUnits()
 		if err != nil {
 			return false, err
@@ -508,7 +604,21 @@ func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string) (boo
 		}
 		return false, nil
 	default:
-		// check dispatch_permissions table
+		// check dispatch_permissions table - try unitID first
+		if operator.UnitID != nil {
+			perm, err := dao.GetDispatchPermissionByUnitID(*operator.UnitID)
+			if err == nil && perm != nil {
+				var scope []string
+				if err := json.Unmarshal([]byte(perm.DispatchScope), &scope); err == nil {
+					for _, s := range scope {
+						if s == targetUnit {
+							return true, nil
+						}
+					}
+				}
+			}
+		}
+		// fallback to string-based check
 		perm, err := dao.GetDispatchPermissionByUnit(operator.UnitName)
 		if err != nil {
 			return false, err
@@ -535,7 +645,7 @@ func MarkInvalid(args map[string]interface{}, operator *model.PoliceUser) error 
 		return errors.New("letter_no required")
 	}
 	remark, _ := args["remark"].(string)
-	if err := dao.UpdateLetterStatus(letterNo, model.StatusInvalid, ""); err != nil {
+	if err := dao.UpdateLetterStatus(letterNo, model.StatusInvalid); err != nil {
 		return err
 	}
 	record := map[string]interface{}{
@@ -568,6 +678,7 @@ func SubmitProcessing(args map[string]interface{}, operator *model.PoliceUser) e
 	}
 
 	var parentUnit string
+	var parentUnitID *uint
 	flow, err := dao.GetFlowByLetterNo(letterNo)
 	if err != nil {
 		return err
@@ -587,12 +698,32 @@ func SubmitProcessing(args map[string]interface{}, operator *model.PoliceUser) e
 		}
 	}
 
-	// 更新状态为"待核查"，同时将 current_unit 设为上级审核单位
+	// 如果 parentUnit 不为空，查询对应的 ID
+	if parentUnit != "" {
+		allUnits, err := dao.GetAllUnits()
+		if err == nil {
+			for _, u := range allUnits {
+				name := u.Level3
+				if name == "" {
+					name = u.Level2
+				}
+				if name == "" {
+					name = u.Level1
+				}
+				if name == parentUnit {
+					parentUnitID = &u.ID
+					break
+				}
+			}
+		}
+	}
+
+	// 更新状态为"待核查"，同时将 current_unit_id 设为上级审核单位
 	updates := map[string]interface{}{
 		"current_status": model.StatusPendingVerification,
 	}
-	if parentUnit != "" {
-		updates["current_unit"] = parentUnit
+	if parentUnitID != nil {
+		updates["current_unit_id"] = *parentUnitID
 	}
 	if err := dao.UpdateLetterFields(letterNo, updates); err != nil {
 		return err
@@ -620,7 +751,7 @@ func SubmitProcessing(args map[string]interface{}, operator *model.PoliceUser) e
 		"operator":       operator.Name,
 		"operator_id":    operator.PoliceNumber,
 		"operator_unit":  operator.UnitName,
-		"from_unit":      letter.CurrentUnit,
+		"from_unit":      getUnitNameFromObj(letter.CurrentUnitObj),
 		"to_unit":        parentUnit,
 		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
@@ -633,7 +764,7 @@ func HandleBySelf(args map[string]interface{}, operator *model.PoliceUser) error
 		return errors.New("letter_no required")
 	}
 	remark, _ := args["remark"].(string)
-	if err := dao.UpdateLetterStatus(letterNo, model.StatusProcessing, operator.UnitName); err != nil {
+	if err := dao.UpdateLetterStatus(letterNo, model.StatusProcessing, operator.UnitID); err != nil {
 		return err
 	}
 	record := map[string]interface{}{
@@ -667,6 +798,7 @@ func ReturnLetter(args map[string]interface{}, operator *model.PoliceUser) error
 
 	// 获取流转记录，追溯上一个状态/人/单位
 	var prevUnit, prevStatus, prevOperator string
+	var prevUnitID *uint
 	flow, err := dao.GetFlowByLetterNo(letterNo)
 	if err != nil {
 		return err
@@ -678,7 +810,7 @@ func ReturnLetter(args map[string]interface{}, operator *model.PoliceUser) error
 			for i := len(records) - 1; i >= 0; i-- {
 				r := records[i]
 				action, _ := r["action"].(string)
-			if action == "dispatch" {
+				if action == "dispatch" {
 					prevUnit, _ = r["from_unit"].(string)
 					prevOperator, _ = r["operator"].(string)
 					// 看 dispatch 记录之前的记录状态
@@ -701,8 +833,29 @@ func ReturnLetter(args map[string]interface{}, operator *model.PoliceUser) error
 	// 更新信件为上一个状态
 	updates := map[string]interface{}{
 		"current_status":   prevStatus,
-		"current_unit":     prevUnit,
 		"current_operator": prevOperator,
+	}
+	// 如果 prevUnit 不为空，查询对应的 ID
+	if prevUnit != "" && prevUnitID == nil {
+		allUnits, err := dao.GetAllUnits()
+		if err == nil {
+			for _, u := range allUnits {
+				name := u.Level3
+				if name == "" {
+					name = u.Level2
+				}
+				if name == "" {
+					name = u.Level1
+				}
+				if name == prevUnit {
+					prevUnitID = &u.ID
+					break
+				}
+			}
+		}
+	}
+	if prevUnitID != nil {
+		updates["current_unit_id"] = *prevUnitID
 	}
 	if err := dao.UpdateLetterFields(letterNo, updates); err != nil {
 		return err
@@ -717,7 +870,7 @@ func ReturnLetter(args map[string]interface{}, operator *model.PoliceUser) error
 	record := map[string]interface{}{
 		"action":         "return_letter",
 		"status":         prevStatus,
-		"from_unit":      letter.CurrentUnit,
+		"from_unit":      getUnitNameFromObj(letter.CurrentUnitObj),
 		"to_unit":        prevUnit,
 		"from_operator":  letter.CurrentOperator,
 		"to_operator":    prevOperator,
@@ -749,7 +902,7 @@ func AuditApprove(args map[string]interface{}, operator *model.PoliceUser) error
 		return errors.New("无审核权限")
 	}
 
-	if err := dao.UpdateLetterStatus(letterNo, newStatus, ""); err != nil {
+	if err := dao.UpdateLetterStatus(letterNo, newStatus); err != nil {
 		return err
 	}
 	record := map[string]interface{}{
@@ -780,6 +933,7 @@ func AuditReject(args map[string]interface{}, operator *model.PoliceUser) error 
 
 	// 从流转记录中追溯上次 submit_processing 操作的 from_unit
 	var processingUnit string
+	var processingUnitID *uint
 	flow, err := dao.GetFlowByLetterNo(letterNo)
 	if err != nil {
 		return err
@@ -801,13 +955,34 @@ func AuditReject(args map[string]interface{}, operator *model.PoliceUser) error 
 
 	// 如果追溯不到，使用当前状态前的单位
 	if processingUnit == "" {
-		processingUnit = letter.CurrentUnit
+		processingUnit = getUnitNameFromObj(letter.CurrentUnitObj)
 	}
 
 	// 退回处理单位，状态恢复为"处理中"
 	updates := map[string]interface{}{
 		"current_status": model.StatusProcessing,
-		"current_unit":   processingUnit,
+	}
+	// 如果 processingUnit 不为空，查询对应的 ID
+	if processingUnit != "" && processingUnitID == nil {
+		allUnits, err := dao.GetAllUnits()
+		if err == nil {
+			for _, u := range allUnits {
+				name := u.Level3
+				if name == "" {
+					name = u.Level2
+				}
+				if name == "" {
+					name = u.Level1
+				}
+				if name == processingUnit {
+					processingUnitID = &u.ID
+					break
+				}
+			}
+		}
+	}
+	if processingUnitID != nil {
+		updates["current_unit_id"] = *processingUnitID
 	}
 	if err := dao.UpdateLetterFields(letterNo, updates); err != nil {
 		return err
@@ -826,14 +1001,14 @@ func AuditReject(args map[string]interface{}, operator *model.PoliceUser) error 
 		"operator":       operator.Name,
 		"operator_id":    operator.PoliceNumber,
 		"operator_unit":  operator.UnitName,
-		"from_unit":      letter.CurrentUnit,
+		"from_unit":      getUnitNameFromObj(letter.CurrentUnitObj),
 		"to_unit":        processingUnit,
 		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, record)
 }
 
-func GetStatistics(unitName string, permLevel string, period string) (map[string]interface{}, error) {
+func GetStatistics(unitName string, permLevel string, period string, unitID ...*uint) (map[string]interface{}, error) {
 	// 根据 period 计算时间范围
 	var startTime, endTime *time.Time
 	now := time.Now()
@@ -862,37 +1037,89 @@ func GetStatistics(unitName string, permLevel string, period string) (map[string
 
 	// 根据权限计算可访问的单位列表
 	var unitNames []string
+	var unitIDs []uint
+
+	// 如果传了 unitID，优先使用 unitID 路径
+	hasUnitID := len(unitID) > 0 && unitID[0] != nil
+
 	switch permLevel {
 	case "CITY":
 		// 市局：可见所有数据，不过滤
 	case "DISTRICT":
-		// 区县局：可见本单位及下属单位的数据
-		subUnits := dao.GetSubordinateUnitNames(unitName)
-		if len(subUnits) > 0 {
-			unitNames = subUnits
+		if hasUnitID {
+			// 使用 unitID 查找下属单位
+			unitIDs = dao.GetSubordinateUnitIDs(*unitID[0])
+			if len(unitIDs) > 0 {
+				// 同时获取单位名称用于过滤
+				subUnits := dao.GetSubordinateUnitNames(unitName)
+				if len(subUnits) > 0 {
+					unitNames = subUnits
+				} else {
+					unitNames = []string{unitName}
+				}
+			} else {
+				unitIDs = []uint{*unitID[0]}
+				unitNames = []string{unitName}
+			}
 		} else {
-			unitNames = []string{unitName}
+			// 区县局：可见本单位及下属单位的数据
+			subUnits := dao.GetSubordinateUnitNames(unitName)
+			if len(subUnits) > 0 {
+				unitNames = subUnits
+			} else {
+				unitNames = []string{unitName}
+			}
 		}
 	default:
+		if hasUnitID {
+			unitIDs = []uint{*unitID[0]}
+		}
 		// OFFICER：仅可见本单位数据
 		unitNames = []string{unitName}
 	}
 
-	statusStats, err := dao.GetLetterStatusStats(startTime, endTime, unitNames)
-	if err != nil {
-		return nil, err
-	}
-	channelStats, err := dao.GetLetterChannelStats(unitNames)
-	if err != nil {
-		return nil, err
-	}
-	monthStats, err := dao.GetLetterMonthStats(unitNames)
-	if err != nil {
-		return nil, err
-	}
-	catStats, err := dao.GetLetterCategoryStats(startTime, endTime, unitNames)
-	if err != nil {
-		return nil, err
+	var statusStats []dao.StatusCount
+	var channelStats []dao.ChannelCount
+	var monthStats []dao.MonthCount
+	var catStats []dao.CategoryCount
+	var err error
+
+	// 如果有 unitIDs，使用 ByUnitIDs 函数
+	if len(unitIDs) > 0 {
+		statusStats, err = dao.GetLetterStatusStatsByUnitIDs(startTime, endTime, unitIDs)
+		if err != nil {
+			return nil, err
+		}
+		channelStats, err = dao.GetLetterChannelStatsByUnitIDs(unitIDs)
+		if err != nil {
+			return nil, err
+		}
+		monthStats, err = dao.GetLetterMonthStatsByUnitIDs(unitIDs)
+		if err != nil {
+			return nil, err
+		}
+		catStats, err = dao.GetLetterCategoryStatsByUnitIDs(startTime, endTime, unitIDs)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// fallback: 使用单位名称查询
+		statusStats, err = dao.GetLetterStatusStats(startTime, endTime, unitNames)
+		if err != nil {
+			return nil, err
+		}
+		channelStats, err = dao.GetLetterChannelStats(unitNames)
+		if err != nil {
+			return nil, err
+		}
+		monthStats, err = dao.GetLetterMonthStats(unitNames)
+		if err != nil {
+			return nil, err
+		}
+		catStats, err = dao.GetLetterCategoryStats(startTime, endTime, unitNames)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// 构建 summary 统计

@@ -27,6 +27,13 @@ func GetUserByID(id uint) (*model.PoliceUser, error) {
 	return &user, nil
 }
 
+// HasDispatchLevelUsersInUnit 检查目标单位是否存在 CITY 或 DISTRICT 级别的用户
+func HasDispatchLevelUsersInUnit(unitID uint) bool {
+	var count int64
+	DB.Model(&model.PoliceUser{}).Where("unit_id = ? AND permission_level IN ('CITY', 'DISTRICT') AND is_active = true", unitID).Count(&count)
+	return count > 0
+}
+
 func CreateSession(session *model.UserSession) error {
 	return DB.Create(session).Error
 }
@@ -65,24 +72,51 @@ func DeleteUser(id uint) error {
 	return DB.Delete(&model.PoliceUser{}, id).Error
 }
 
-func GetUserList(page, pageSize int, unitFilter string, permLevel string) ([]model.PoliceUser, int64, error) {
+func GetUserList(page, pageSize int, unitFilter string, permLevel string, isAdmin bool, unitID ...*uint) ([]model.PoliceUser, int64, error) {
 	var users []model.PoliceUser
 	var total int64
 	offset := (page - 1) * pageSize
 	query := DB.Model(&model.PoliceUser{})
-	if unitFilter != "" && permLevel == "DISTRICT" {
+	// CITY 用户可见性规则
+	if permLevel == "CITY" {
+		if isAdmin {
+			// CITY admin：可见所有用户（不过滤）
+		} else {
+			// CITY 非admin：仅可见 CITY admin + DISTRICT + OFFICER
+			query = query.Where("(permission_level = 'CITY' AND is_admin = true) OR permission_level IN ('DISTRICT', 'OFFICER')")
+		}
+	} else if unitFilter != "" && permLevel == "DISTRICT" {
 		// 区县局：看到本单位本级用户 + 下属科所队用户，但排除 CITY 级别用户
 		subUnits := GetSubordinateUnitNames(unitFilter)
 		if len(subUnits) > 0 {
-			query = query.Where(
-				"(unit_name = ?) OR (unit_name IN ? AND permission_level != 'CITY')",
-				unitFilter, subUnits,
-			)
+			if len(unitID) > 0 && unitID[0] != nil {
+				query = query.Where(
+					"((unit_name = ? OR unit_id = ?) OR (unit_name IN ? AND permission_level != 'CITY'))",
+					unitFilter, *unitID[0], subUnits,
+				)
+			} else {
+				query = query.Where(
+					"(unit_name = ?) OR (unit_name IN ? AND permission_level != 'CITY')",
+					unitFilter, subUnits,
+				)
+			}
+		} else {
+			if len(unitID) > 0 && unitID[0] != nil {
+				query = query.Where("(unit_name = ? OR unit_id = ?)", unitFilter, *unitID[0])
+			} else {
+				query = query.Where("unit_name = ?", unitFilter)
+			}
+		}
+		// DISTRICT 非admin：不可见同级（DISTRICT）非admin用户
+		if !isAdmin {
+			query = query.Where("(permission_level != 'DISTRICT' OR is_admin = true)")
+		}
+	} else if unitFilter != "" {
+		if len(unitID) > 0 && unitID[0] != nil {
+			query = query.Where("(unit_name = ? OR unit_id = ?)", unitFilter, *unitID[0])
 		} else {
 			query = query.Where("unit_name = ?", unitFilter)
 		}
-	} else if unitFilter != "" {
-		query = query.Where("unit_name = ?", unitFilter)
 	}
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -164,12 +198,45 @@ func GetUnitsWithFilter(page, pageSize int, searchKeyword, filterLevel1, filterL
 
 	return units, total, err
 }
-// normalizeUnitName 将全路径单位名转为短名
+// NormalizeUnitName 将全路径单位名转为短名
 // "分局 / 桃城分局 / 民意智感中心" → "民意智感中心"
 // "民意智感中心" → "民意智感中心"（不变）
-func normalizeUnitName(name string) string {
+func NormalizeUnitName(name string) string {
 	parts := strings.Split(name, " / ")
 	return strings.TrimSpace(parts[len(parts)-1])
+}
+
+// GetSubordinateUnitIDs 获取某单位及其下属所有单位的 ID 列表
+// unitID 为单位的 ID，根据 units 表的三级结构查找所有以该 unit 为祖先的子单位
+func GetSubordinateUnitIDs(unitID uint) []uint {
+	unit, err := GetUnitByID(unitID)
+	if err != nil {
+		return nil
+	}
+	allUnits, err := GetAllUnits()
+	if err != nil {
+		return nil
+	}
+	var ids []uint
+	seen := map[uint]bool{}
+	for _, u := range allUnits {
+		var match bool
+		if unit.Level3 != "" {
+			// 三级单位：匹配相同 level1+level2+level3（自身及同级别单位）
+			match = u.Level1 == unit.Level1 && u.Level2 == unit.Level2 && u.Level3 == unit.Level3
+		} else if unit.Level2 != "" {
+			// 二级单位：匹配相同 level1+level2（下属三级单位及同级二级单位）
+			match = u.Level1 == unit.Level1 && u.Level2 == unit.Level2
+		} else if unit.Level1 != "" {
+			// 一级单位：匹配相同 level1（下属所有单位）
+			match = u.Level1 == unit.Level1
+		}
+		if match && !seen[u.ID] {
+			seen[u.ID] = true
+			ids = append(ids, u.ID)
+		}
+	}
+	return ids
 }
 
 // GetSubordinateUnitNames 获取某单位及其下属所有单位的短名称列表
@@ -180,7 +247,7 @@ func GetSubordinateUnitNames(unitName string) []string {
 		return nil
 	}
 	// 归一化：提取最后一段作为匹配依据
-	shortName := normalizeUnitName(unitName)
+	shortName := NormalizeUnitName(unitName)
 	var names []string
 	seen := map[string]bool{}
 	for _, u := range allUnits {
@@ -233,6 +300,18 @@ func GetDispatchPermissions() ([]model.DispatchPermission, error) {
 func GetDispatchPermissionByUnit(unitName string) (*model.DispatchPermission, error) {
 	var perm model.DispatchPermission
 	err := DB.Where("unit_name = ?", unitName).First(&perm).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &perm, nil
+}
+
+func GetDispatchPermissionByUnitID(unitID uint) (*model.DispatchPermission, error) {
+	var perm model.DispatchPermission
+	err := DB.Where("unit_id = ?", unitID).First(&perm).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil

@@ -19,7 +19,9 @@ type PoliceUser struct {
 	Nickname        string          `json:"nickname" gorm:"column:nickname;size:64"`
 	PoliceNumber    string          `json:"police_number" gorm:"column:police_number;uniqueIndex;size:32;not null"`
 	Phone           string          `json:"phone" gorm:"column:phone;size:32"`
-	UnitName        string          `json:"unit_name" gorm:"column:unit_name;size:128"`
+	UnitID          *uint           `json:"unit_id" gorm:"column:unit_id"`
+	UnitName        string          `json:"-" gorm:"column:unit_name;size:128"`
+	Unit            *Unit           `json:"unit,omitempty" gorm:"foreignKey:UnitID"`
 	PermissionLevel PermissionLevel `json:"permission_level" gorm:"column:permission_level;type:enum('CITY','DISTRICT','OFFICER');not null"`
 	IsActive        bool            `json:"is_active" gorm:"column:is_active;default:true"`
 	IsAdmin         bool            `json:"is_admin" gorm:"column:is_admin;default:false"`

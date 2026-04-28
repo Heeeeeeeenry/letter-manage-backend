@@ -106,8 +106,9 @@ func handleGetMenu(c *gin.Context) {
 			"name":             user.Name,
 			"nickname":         user.Nickname,
 			"police_number":    user.PoliceNumber,
-			"unit_name":        user.UnitName,
+			"unit_id":          user.UnitID,
 			"permission_level": user.PermissionLevel,
+			"is_admin":         user.IsAdmin,
 		}
 	}
 
@@ -125,6 +126,7 @@ func handleGetSystemConfig(c *gin.Context) {
 		"logo":           "/assets/logo.png",
 		"statuses": []string{
 			model.StatusPreProcess,
+			model.StatusPendingDistrictDispatch,
 			model.StatusCityDispatched,
 			model.StatusCityDirectDispatch,
 			model.StatusDispatched,

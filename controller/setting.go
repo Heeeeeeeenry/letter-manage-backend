@@ -112,7 +112,7 @@ func SettingController(c *gin.Context) {
 			c.JSON(http.StatusOK, model.ErrorResp("无权限"))
 			return
 		}
-		data, err := service.GetUserList(req.Args, user.UnitName, string(user.PermissionLevel))
+		data, err := service.GetUserList(req.Args, user.UnitName, string(user.PermissionLevel), user.IsAdmin, user.UnitID)
 		if err != nil {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 			return
@@ -131,10 +131,13 @@ func SettingController(c *gin.Context) {
 			return
 		}
 		// 检查目标单位是否在当前用户的管理范围内
-		targetUnit, _ := req.Args["unit_name"].(string)
-		if targetUnit != "" && !isUnitInScope(user, targetUnit) {
-			c.JSON(http.StatusOK, model.ErrorResp("无权限管理该单位的用户"))
-			return
+		targetUnitIDf, _ := req.Args["unit_id"].(float64)
+		if targetUnitIDf > 0 {
+			targetUnitID := uint(targetUnitIDf)
+			if !isUnitInScope(user, "", &targetUnitID) {
+				c.JSON(http.StatusOK, model.ErrorResp("无权限管理该单位的用户"))
+				return
+			}
 		}
 		if err := service.CreateUser(req.Args); err != nil {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
@@ -147,19 +150,39 @@ func SettingController(c *gin.Context) {
 			c.JSON(http.StatusOK, model.ErrorResp("无权限"))
 			return
 		}
-		// 检查目标用户，不能修改同级用户除非有管理员权限
+		// 权限校验规则：
+		// 1. 非admin不能操作同级用户
+		// 2. admin不能编辑同级admin
+		// 3. 不能操作上级
+		// 4. 必须在单位管理范围内
+		// 5. admin编辑同级用户时，手机号只读（被后端剥离）
 		idF, _ := req.Args["id"].(float64)
 		if idF > 0 {
 			targetUser, err := dao.GetUserByID(uint(idF))
 			if err == nil && targetUser != nil {
-				if user.PermissionLevel == targetUser.PermissionLevel && !user.IsAdmin {
+				// 规则1：非admin不能操作同级
+				if !user.IsAdmin && user.PermissionLevel == targetUser.PermissionLevel {
 					c.JSON(http.StatusOK, model.ErrorResp("无权限修改同级用户"))
 					return
 				}
-				// 检查目标用户的单位是否在当前用户的管理范围内
-				if !isUnitInScope(user, targetUser.UnitName) {
+				// 规则2：admin不能编辑同级admin
+				if user.IsAdmin && targetUser.IsAdmin && user.PermissionLevel == targetUser.PermissionLevel {
+					c.JSON(http.StatusOK, model.ErrorResp("无权限修改同级管理员"))
+					return
+				}
+				// 规则3：不能操作上级
+				if service.LevelRank(string(user.PermissionLevel)) < service.LevelRank(string(targetUser.PermissionLevel)) {
+					c.JSON(http.StatusOK, model.ErrorResp("无权限修改上级用户"))
+					return
+				}
+				// 规则4：检查目标用户的单位是否在当前用户的管理范围内
+				if !isUnitInScope(user, targetUser.UnitName, targetUser.UnitID) {
 					c.JSON(http.StatusOK, model.ErrorResp("无权限管理该单位的用户"))
 					return
+				}
+				// 规则5：管理员不能编辑同级用户的手机号（可见但只读）
+				if user.IsAdmin && user.PermissionLevel == targetUser.PermissionLevel {
+					delete(req.Args, "phone")
 				}
 			}
 		}
@@ -176,8 +199,25 @@ func SettingController(c *gin.Context) {
 			if idF > 0 {
 				targetUser, err := dao.GetUserByID(uint(idF))
 				if err == nil && targetUser != nil {
-					if !user.IsAdmin || !isUnitInScope(user, targetUser.UnitName) {
-						c.JSON(http.StatusOK, model.ErrorResp("无权限删除该用户"))
+					// 权限校验规则（同update_user）：
+					// 1. 非admin不能操作同级用户
+					if !user.IsAdmin && user.PermissionLevel == targetUser.PermissionLevel {
+						c.JSON(http.StatusOK, model.ErrorResp("无权限删除同级用户"))
+						return
+					}
+					// 2. admin不能删除同级admin
+					if user.IsAdmin && targetUser.IsAdmin && user.PermissionLevel == targetUser.PermissionLevel {
+						c.JSON(http.StatusOK, model.ErrorResp("无权限删除同级管理员"))
+						return
+					}
+					// 3. 不能操作上级
+					if service.LevelRank(string(user.PermissionLevel)) < service.LevelRank(string(targetUser.PermissionLevel)) {
+						c.JSON(http.StatusOK, model.ErrorResp("无权限删除上级用户"))
+						return
+					}
+					// 4. 必须在单位管理范围内
+					if !isUnitInScope(user, targetUser.UnitName, targetUser.UnitID) {
+						c.JSON(http.StatusOK, model.ErrorResp("无权限管理该单位的用户"))
 						return
 					}
 				}
@@ -197,16 +237,28 @@ func SettingController(c *gin.Context) {
 			c.JSON(http.StatusOK, model.ErrorResp("无权限"))
 			return
 		}
-		// 检查目标用户是否在当前用户的管理范围内
+		// 权限校验规则（同update_user）：
 		idF, _ := req.Args["id"].(float64)
 		if idF > 0 {
 			targetUser, err := dao.GetUserByID(uint(idF))
 			if err == nil && targetUser != nil {
-				if user.PermissionLevel == targetUser.PermissionLevel && !user.IsAdmin {
+				// 1. 非admin不能操作同级
+				if !user.IsAdmin && user.PermissionLevel == targetUser.PermissionLevel {
 					c.JSON(http.StatusOK, model.ErrorResp("无权限修改同级用户密码"))
 					return
 				}
-				if !isUnitInScope(user, targetUser.UnitName) {
+				// 2. admin不能操作同级admin
+				if user.IsAdmin && targetUser.IsAdmin && user.PermissionLevel == targetUser.PermissionLevel {
+					c.JSON(http.StatusOK, model.ErrorResp("无权限修改同级管理员密码"))
+					return
+				}
+				// 3. 不能操作上级
+				if service.LevelRank(string(user.PermissionLevel)) < service.LevelRank(string(targetUser.PermissionLevel)) {
+					c.JSON(http.StatusOK, model.ErrorResp("无权限修改上级用户密码"))
+					return
+				}
+				// 4. 检查目标用户的单位是否在当前用户的管理范围内
+				if !isUnitInScope(user, targetUser.UnitName, targetUser.UnitID) {
 					c.JSON(http.StatusOK, model.ErrorResp("无权限管理该单位的用户"))
 					return
 				}
@@ -322,7 +374,37 @@ func SettingController(c *gin.Context) {
 }
 
 // isUnitInScope 检查目标单位是否在当前用户的管理范围内
-func isUnitInScope(user *model.PoliceUser, targetUnit string) bool {
+func isUnitInScope(user *model.PoliceUser, targetUnit string, targetUnitID ...*uint) bool {
+	if targetUnit == "" && len(targetUnitID) == 0 {
+		return false
+	}
+	// 如果传了 targetUnitID，使用 ID 判断
+	if len(targetUnitID) > 0 && targetUnitID[0] != nil {
+		switch user.PermissionLevel {
+		case model.PermissionCity:
+			return true
+		case model.PermissionDistrict:
+			// 检查是否本单位
+			if user.UnitID != nil && *user.UnitID == *targetUnitID[0] {
+				return true
+			}
+			// 检查是否下属单位
+			subIDs := dao.GetSubordinateUnitIDs(*user.UnitID)
+			for _, sid := range subIDs {
+				if sid == *targetUnitID[0] {
+					return true
+				}
+			}
+			return false
+		default:
+			// OFFICER：只能管理本单位
+			if user.UnitID != nil {
+				return *user.UnitID == *targetUnitID[0]
+			}
+			return false
+		}
+	}
+	// 没有 targetUnitID，fallback 到字符串判断
 	if targetUnit == "" {
 		return false
 	}

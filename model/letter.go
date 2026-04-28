@@ -4,21 +4,22 @@ import "time"
 
 // Letter represents the letters table
 type Letter struct {
-	ID            uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	LetterNo      string    `json:"letter_no" gorm:"column:letter_no;uniqueIndex;size:64;not null"`
-	CitizenName   string    `json:"citizen_name" gorm:"column:citizen_name;size:64"`
-	Phone         string    `json:"phone" gorm:"column:phone;size:32"`
-	IDCard        string    `json:"id_card" gorm:"column:id_card;size:32"`
-	ReceivedAt    time.Time `json:"received_at" gorm:"column:received_at"`
-	Channel       string    `json:"channel" gorm:"column:channel;size:64"`
-	CategoryL1    string    `json:"category_l1" gorm:"column:category_l1;size:64"`
-	CategoryL2    string    `json:"category_l2" gorm:"column:category_l2;size:64"`
-	CategoryL3    string    `json:"category_l3" gorm:"column:category_l3;size:64"`
-	Content       string    `json:"content" gorm:"column:content;type:text"`
-	SpecialTags   JSONRaw   `json:"special_tags" gorm:"column:special_tags;type:json"`
-	CurrentUnit     string    `json:"current_unit" gorm:"column:current_unit;size:128"`
-	CurrentStatus   string    `json:"current_status" gorm:"column:current_status;size:64"`
-	CurrentOperator string    `json:"current_operator" gorm:"column:current_operator;size:64"`
+	ID              uint      `json:"id" gorm:"primaryKey;autoIncrement"`
+	LetterNo        string    `json:"letter_no" gorm:"column:letter_no;uniqueIndex;size:64;not null"`
+	CitizenName     string    `json:"citizen_name" gorm:"column:citizen_name;size:64"`
+	Phone           string    `json:"phone" gorm:"column:phone;size:32"`
+	IDCard          string    `json:"id_card" gorm:"column:id_card;size:32"`
+	ReceivedAt      time.Time `json:"received_at" gorm:"column:received_at"`
+	Channel         string    `json:"channel" gorm:"column:channel;size:64"`
+	CategoryL1      string    `json:"category_l1" gorm:"column:category_l1;size:64"`
+	CategoryL2      string    `json:"category_l2" gorm:"column:category_l2;size:64"`
+	CategoryL3      string    `json:"category_l3" gorm:"column:category_l3;size:64"`
+	Content         string    `json:"content" gorm:"column:content;type:text"`
+	SpecialTags     JSONRaw   `json:"special_tags" gorm:"column:special_tags;type:json"`
+	CurrentUnitID     *uint     `json:"current_unit_id" gorm:"column:current_unit_id"`
+	CurrentUnitObj    *Unit     `json:"current_unit,omitempty" gorm:"foreignKey:CurrentUnitID"`
+	CurrentStatus     string    `json:"current_status" gorm:"column:current_status;size:64"`
+	CurrentOperator   string    `json:"current_operator" gorm:"column:current_operator;size:64"`
 	DeadlineAt    *time.Time `json:"deadline_at" gorm:"column:deadline_at"`
 	CreatedAt     *time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt     *time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
@@ -78,7 +79,8 @@ func (Category) TableName() string { return "categories" }
 // DispatchPermission represents the dispatch_permissions table
 type DispatchPermission struct {
 	ID            uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	UnitName      string    `json:"unit_name" gorm:"column:unit_name;uniqueIndex;size:128;not null"`
+	UnitID        *uint     `json:"unit_id" gorm:"column:unit_id"`
+	UnitName      string    `json:"-" gorm:"column:unit_name;uniqueIndex;size:128;not null"`
 	DispatchScope JSONRaw   `json:"dispatch_scope" gorm:"column:dispatch_scope;type:json"`
 	CreatedAt     time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt     time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
@@ -111,6 +113,7 @@ func (SpecialFocus) TableName() string { return "special_focuses" }
 // Letter status constants
 const (
 	StatusPreProcess           = "预处理"
+	StatusPendingDistrictDispatch = "待区县局下发"
 	StatusCityDispatched       = "已下发至分县局/支队"
 	StatusCityDirectDispatch   = "市局越级下发"
 	StatusDispatched           = "已下发至处理单位"

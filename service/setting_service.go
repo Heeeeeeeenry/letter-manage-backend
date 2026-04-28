@@ -215,9 +215,22 @@ func DeleteUnit(args map[string]interface{}) error {
 	return dao.DeleteUnit(uint(idF))
 }
 
+func LevelRank(level string) int {
+	switch level {
+	case "CITY":
+		return 3
+	case "DISTRICT":
+		return 2
+	case "OFFICER":
+		return 1
+	default:
+		return 0
+	}
+}
+
 // Users
 
-func GetUserList(args map[string]interface{}, currentUnitName string, permLevel string) (map[string]interface{}, error) {
+func GetUserList(args map[string]interface{}, currentUnitName string, permLevel string, currentIsAdmin bool, currentUnitID ...*uint) (map[string]interface{}, error) {
 	page := 1
 	pageSize := 20
 	if v, ok := args["page"].(float64); ok {
@@ -228,6 +241,10 @@ func GetUserList(args map[string]interface{}, currentUnitName string, permLevel 
 	}
 	// 权限数据隔离：根据用户级别限制可见的用户范围
 	var unitFilter string
+	var unitIDArg *uint
+	if len(currentUnitID) > 0 {
+		unitIDArg = currentUnitID[0]
+	}
 	switch permLevel {
 	case "CITY":
 		// 市局：可见所有用户
@@ -242,7 +259,7 @@ func GetUserList(args map[string]interface{}, currentUnitName string, permLevel 
 	default:
 		unitFilter = currentUnitName
 	}
-	users, total, err := dao.GetUserList(page, pageSize, unitFilter, permLevel)
+	users, total, err := dao.GetUserList(page, pageSize, unitFilter, permLevel, currentIsAdmin, unitIDArg)
 	if err != nil {
 		return nil, err
 	}
@@ -254,19 +271,45 @@ func GetUserList(args map[string]interface{}, currentUnitName string, permLevel 
 		if user.IsActive {
 			statusText = "已激活"
 		}
+		// 手机号可见规则
+		// - Admin看同级: 可见（手机号只读）
+		// - Admin看下级: 可见（手机号可编辑，非管理员用户）
+		// - 非admin看同级任何用户: 不可见
+		// - 非admin看下级: 可见
+		viewerRank := LevelRank(permLevel)
+		targetRank := LevelRank(string(user.PermissionLevel))
+		showPhone := viewerRank != targetRank || (viewerRank == targetRank && currentIsAdmin)
+		phone := user.Phone
+		if !showPhone {
+			phone = ""
+		}
+		// 手机号是否可编辑
+		// - 不同级别（查看者是上级）：可编辑（非管理员用户）
+		// - 同级别且查看者是管理员：不可编辑（只读）
+		// - 其他情况：不可编辑
+		phoneEditable := false
+		if showPhone {
+			if viewerRank != targetRank {
+				// 上级看下级：可编辑非管理员
+				phoneEditable = currentIsAdmin || !user.IsAdmin
+			} else {
+				// 同级别：管理员可见但不可编辑
+				phoneEditable = false
+			}
+		}
 		mappedUsers[i] = map[string]interface{}{
 			"id":               user.ID,
 			"name":             user.Name,
 			"police_number":    user.PoliceNumber,
-			"unit_name":        user.UnitName,
-			"org":              user.UnitName,
+			"unit_id":          user.UnitID,
 			"role":             string(user.PermissionLevel),
 			"permission_level": string(user.PermissionLevel),
 			"status":           statusText,
 			"is_active":        user.IsActive,
 			"is_admin":         user.IsAdmin,
 			"nickname":         user.Nickname,
-			"phone":            user.Phone,
+			"phone":            phone,
+			"phone_editable":   phoneEditable,
 			"created_at":       user.CreatedAt,
 			"last_login":       user.LastLogin,
 		}
@@ -294,7 +337,24 @@ func CreateUser(args map[string]interface{}) error {
 		user.Phone = v
 	}
 	if v, ok := args["unit_name"].(string); ok {
-		user.UnitName = v
+		user.UnitName = dao.NormalizeUnitName(v)
+	}
+	// 如果传了 unit_id，通过 ID 查找单位
+	if v, ok := args["unit_id"].(float64); ok {
+		unit, err := dao.GetUnitByID(uint(v))
+		if err == nil && unit != nil {
+			u := uint(v)
+			user.UnitID = &u
+			if user.UnitName == "" {
+				user.UnitName = unit.Level3
+				if user.UnitName == "" {
+					user.UnitName = unit.Level2
+				}
+				if user.UnitName == "" {
+					user.UnitName = unit.Level1
+				}
+			}
+		}
 	}
 	if v, ok := args["permission_level"].(string); ok {
 		user.PermissionLevel = model.PermissionLevel(v)
@@ -336,7 +396,25 @@ func UpdateUser(args map[string]interface{}) error {
 		user.Phone = v
 	}
 	if v, ok := args["unit_name"].(string); ok {
-		user.UnitName = v
+		user.UnitName = dao.NormalizeUnitName(v)
+	}
+	// 如果传了 unit_id，更新 UnitID
+	if v, ok := args["unit_id"].(float64); ok {
+		u := uint(v)
+		user.UnitID = &u
+		// 如果未传 unit_name，从单位表中补充
+		if _, hasUnitName := args["unit_name"]; !hasUnitName {
+			if unit, err := dao.GetUnitByID(uint(v)); err == nil && unit != nil {
+				name := unit.Level3
+				if name == "" {
+					name = unit.Level2
+				}
+				if name == "" {
+					name = unit.Level1
+				}
+				user.UnitName = name
+			}
+		}
 	}
 	if v, ok := args["permission_level"].(string); ok {
 		user.PermissionLevel = model.PermissionLevel(v)
@@ -385,11 +463,23 @@ func GetDispatchPermissions() ([]model.DispatchPermission, error) {
 
 func CreateDispatchPermission(args map[string]interface{}) error {
 	perm := &model.DispatchPermission{}
-	if v, ok := args["unit_name"].(string); ok {
-		perm.UnitName = v
+	// 如果传了 unit_id，通过 ID 查找单位名
+	if v, ok := args["unit_id"].(float64); ok {
+		u := uint(v)
+		unit, err := dao.GetUnitByID(u)
+		if err == nil && unit != nil {
+			perm.UnitID = &u
+			perm.UnitName = unit.Level3
+			if perm.UnitName == "" {
+				perm.UnitName = unit.Level2
+			}
+			if perm.UnitName == "" {
+				perm.UnitName = unit.Level1
+			}
+		}
 	}
 	if perm.UnitName == "" {
-		return errors.New("unit_name required")
+		return errors.New("unit_id required")
 	}
 	if v, ok := args["dispatch_scope"]; ok {
 		b, _ := marshalJSON(v)
@@ -409,8 +499,20 @@ func UpdateDispatchPermission(args map[string]interface{}) error {
 	if err != nil {
 		return err
 	}
-	if v, ok := args["unit_name"].(string); ok {
-		perm.UnitName = v
+	// 如果传了 unit_id，通过 ID 查找单位名
+	if v, ok := args["unit_id"].(float64); ok {
+		u := uint(v)
+		unit, err := dao.GetUnitByID(u)
+		if err == nil && unit != nil {
+			perm.UnitID = &u
+			perm.UnitName = unit.Level3
+			if perm.UnitName == "" {
+				perm.UnitName = unit.Level2
+			}
+			if perm.UnitName == "" {
+				perm.UnitName = unit.Level1
+			}
+		}
 	}
 	if v, ok := args["dispatch_scope"]; ok {
 		b, _ := marshalJSON(v)

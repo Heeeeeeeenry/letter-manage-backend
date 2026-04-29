@@ -16,7 +16,6 @@ func GenerateLetterNo() string {
 }
 
 func GetLetterList(args map[string]interface{}, user *model.PoliceUser) (map[string]interface{}, error) {
-	unitName := user.UnitName
 	permLevel := string(user.PermissionLevel)
 	// Remove order field from args to prevent SQL injection
 	delete(args, "order")
@@ -85,16 +84,20 @@ func GetLetterList(args map[string]interface{}, user *model.PoliceUser) (map[str
 	case "CITY":
 		// 市局：可见所有信件，不过滤
 	case "DISTRICT":
-		// 区县局：可见本单位及下属单位的信件
-		subUnits := getSubordinateUnitNames(unitName)
-		if len(subUnits) > 0 {
-			filter.UnitNames = subUnits
-		} else {
-			filter.UnitName = unitName
+		// 区县局：handler_unit_id 过滤（handler 所属单位，而非信件当前所处单位）
+		if user.UnitID != nil {
+			unitIDs := dao.GetSubordinateUnitIDs(*user.UnitID)
+			if len(unitIDs) > 0 {
+				filter.HandlerUnitIDs = unitIDs
+			} else {
+				filter.HandlerUnitID = user.UnitID
+			}
 		}
 	default:
-		// OFFICER：仅可见本单位信件
-		filter.UnitName = unitName
+		// OFFICER：仅可见本单位处理人的信件
+		if user.UnitID != nil {
+			filter.HandlerUnitID = user.UnitID
+		}
 	}
 
 	letters, total, err := dao.GetLetterList(filter)
@@ -606,11 +609,17 @@ func DispatchLetter(args map[string]interface{}, operator *model.PoliceUser) err
 	if err := dao.UpdateLetterStatus(letterNo, newStatus, targetUnitID); err != nil {
 		return err
 	}
-	// 如果指定了处理人，设置 handler_user_id
+	// 如果指定了处理人，设置 handler_user_id 和 handler_unit_id
 	if handlerID, ok := args["handler_user_id"].(float64); ok && handlerID > 0 {
-		if err := dao.UpdateLetterFields(letterNo, map[string]interface{}{
-			"handler_user_id": uint(handlerID),
-		}); err != nil {
+		uid := uint(handlerID)
+		updates := map[string]interface{}{
+			"handler_user_id": uid,
+		}
+		// 查找处理人的 unit_id 并同步设置 handler_unit_id
+		if handlerUnitID := dao.GetUserUnitID(uid); handlerUnitID != nil {
+			updates["handler_unit_id"] = *handlerUnitID
+		}
+		if err := dao.UpdateLetterFields(letterNo, updates); err != nil {
 			return err
 		}
 	}
@@ -898,6 +907,7 @@ func HandleBySelf(args map[string]interface{}, operator *model.PoliceUser) error
 	// 设置当前用户为处理人
 	if err := dao.UpdateLetterFields(letterNo, map[string]interface{}{
 		"handler_user_id": operator.ID,
+		"handler_unit_id": operator.UnitID,
 	}); err != nil {
 		return err
 	}
@@ -1041,8 +1051,9 @@ func ReturnLetter(args map[string]interface{}, operator *model.PoliceUser) error
 	if prevUnitID != nil {
 		updates["current_unit_id"] = *prevUnitID
 	}
-	// 退回后清除处理人
+	// 退回后清除处理人及处理单位
 	updates["handler_user_id"] = nil
+	updates["handler_unit_id"] = nil
 	if err := dao.UpdateLetterFields(letterNo, updates); err != nil {
 		return err
 	}
@@ -1194,7 +1205,7 @@ func AuditReject(args map[string]interface{}, operator *model.PoliceUser) error 
 	return appendFlowRecord(letterNo, record)
 }
 
-func GetStatistics(unitName string, permLevel string, period string, unitID ...*uint) (map[string]interface{}, error) {
+func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID uint, viewMode string) (map[string]interface{}, error) {
 	// 根据 period 计算时间范围
 	var startTime, endTime *time.Time
 	now := time.Now()
@@ -1221,47 +1232,27 @@ func GetStatistics(unitName string, permLevel string, period string, unitID ...*
 		endTime = &t
 	}
 
-	// 根据权限计算可访问的单位列表
-	var unitNames []string
+	// 根据权限计算可访问的单位列表（用于 handler_unit_id 过滤）
 	var unitIDs []uint
 
 	// 如果传了 unitID，优先使用 unitID 路径
-	hasUnitID := len(unitID) > 0 && unitID[0] != nil
+	hasUnitID := unitID != nil
 
 	switch permLevel {
 	case "CITY":
 		// 市局：可见所有数据，不过滤
 	case "DISTRICT":
 		if hasUnitID {
-			// 使用 unitID 查找下属单位
-			unitIDs = dao.GetSubordinateUnitIDs(*unitID[0])
-			if len(unitIDs) > 0 {
-				// 同时获取单位名称用于过滤
-				subUnits := dao.GetSubordinateUnitNames(unitName)
-				if len(subUnits) > 0 {
-					unitNames = subUnits
-				} else {
-					unitNames = []string{unitName}
-				}
-			} else {
-				unitIDs = []uint{*unitID[0]}
-				unitNames = []string{unitName}
-			}
-		} else {
-			// 区县局：可见本单位及下属单位的数据
-			subUnits := dao.GetSubordinateUnitNames(unitName)
-			if len(subUnits) > 0 {
-				unitNames = subUnits
-			} else {
-				unitNames = []string{unitName}
+			unitIDs = dao.GetSubordinateUnitIDs(*unitID)
+			if len(unitIDs) == 0 {
+				unitIDs = []uint{*unitID}
 			}
 		}
 	default:
+		// OFFICER：仅可见本单位处理人的数据
 		if hasUnitID {
-			unitIDs = []uint{*unitID[0]}
+			unitIDs = []uint{*unitID}
 		}
-		// OFFICER：仅可见本单位数据
-		unitNames = []string{unitName}
 	}
 
 	var statusStats []dao.StatusCount
@@ -1270,42 +1261,42 @@ func GetStatistics(unitName string, permLevel string, period string, unitID ...*
 	var catStats []dao.CategoryCount
 	var err error
 
-	// 如果有 unitIDs，使用 ByUnitIDs 函数
-	if len(unitIDs) > 0 {
-		statusStats, err = dao.GetLetterStatusStatsByUnitIDs(startTime, endTime, unitIDs)
-		if err != nil {
-			return nil, err
-		}
-		channelStats, err = dao.GetLetterChannelStatsByUnitIDs(unitIDs)
-		if err != nil {
-			return nil, err
-		}
-		monthStats, err = dao.GetLetterMonthStatsByUnitIDs(unitIDs)
-		if err != nil {
-			return nil, err
-		}
-		catStats, err = dao.GetLetterCategoryStatsByUnitIDs(startTime, endTime, unitIDs)
-		if err != nil {
-			return nil, err
-		}
+	// 确定是否个人模式
+	isPersonal := viewMode == "personal" || permLevel == "OFFICER"
+
+	// 如果有 unitIDs，使用 ByUnitIDs 函数（handler_unit_id 过滤）
+	// 无 unitIDs 时（如 CITY），不按 handler 单位过滤
+	if isPersonal && handlerUserID > 0 {
+		statusStats, err = dao.GetLetterStatusStatsByUnitIDs(startTime, endTime, unitIDs, handlerUserID)
 	} else {
-		// fallback: 使用单位名称查询
-		statusStats, err = dao.GetLetterStatusStats(startTime, endTime, unitNames)
-		if err != nil {
-			return nil, err
-		}
-		channelStats, err = dao.GetLetterChannelStats(unitNames)
-		if err != nil {
-			return nil, err
-		}
-		monthStats, err = dao.GetLetterMonthStats(unitNames)
-		if err != nil {
-			return nil, err
-		}
-		catStats, err = dao.GetLetterCategoryStats(startTime, endTime, unitNames)
-		if err != nil {
-			return nil, err
-		}
+		statusStats, err = dao.GetLetterStatusStatsByUnitIDs(startTime, endTime, unitIDs)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if isPersonal && handlerUserID > 0 {
+		channelStats, err = dao.GetLetterChannelStatsByUnitIDs(unitIDs, handlerUserID)
+	} else {
+		channelStats, err = dao.GetLetterChannelStatsByUnitIDs(unitIDs)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if isPersonal && handlerUserID > 0 {
+		monthStats, err = dao.GetLetterMonthStatsByUnitIDs(unitIDs, handlerUserID)
+	} else {
+		monthStats, err = dao.GetLetterMonthStatsByUnitIDs(unitIDs)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if isPersonal && handlerUserID > 0 {
+		catStats, err = dao.GetLetterCategoryStatsByUnitIDs(startTime, endTime, unitIDs, handlerUserID)
+	} else {
+		catStats, err = dao.GetLetterCategoryStatsByUnitIDs(startTime, endTime, unitIDs)
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	// 构建 summary 统计

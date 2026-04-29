@@ -219,7 +219,8 @@ func handleUpdateStatus(c *gin.Context, args map[string]interface{}, user *model
 
 func handleGetStatistics(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
 	period, _ := args["period"].(string)
-	data, err := service.GetStatistics(user.UnitName, string(user.PermissionLevel), period, user.UnitID)
+	viewMode, _ := args["view_mode"].(string)
+	data, err := service.GetStatistics(string(user.PermissionLevel), period, user.UnitID, user.ID, viewMode)
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return

@@ -27,6 +27,15 @@ func GetUserByID(id uint) (*model.PoliceUser, error) {
 	return &user, nil
 }
 
+// GetUserUnitID 根据用户 ID 获取其 unit_id
+func GetUserUnitID(userID uint) *uint {
+	var user model.PoliceUser
+	if err := DB.Select("unit_id").First(&user, userID).Error; err != nil {
+		return nil
+	}
+	return user.UnitID
+}
+
 // HasDispatchLevelUsersInUnit 检查目标单位是否存在 CITY 或 DISTRICT 级别的用户
 func HasDispatchLevelUsersInUnit(unitID uint) bool {
 	var count int64

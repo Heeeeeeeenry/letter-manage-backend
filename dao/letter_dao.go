@@ -26,6 +26,8 @@ type LetterFilter struct {
 	UnitID        *uint
 	UnitIDs       []uint
 	HandlerUserID *uint
+	HandlerUnitID *uint
+	HandlerUnitIDs []uint
 	Page          int
 	PageSize      int
 }
@@ -119,6 +121,12 @@ func buildLetterQuery(filter LetterFilter) *gorm.DB {
 	}
 	if filter.HandlerUserID != nil {
 		query = query.Where("handler_user_id = ?", *filter.HandlerUserID)
+	}
+	if filter.HandlerUnitID != nil {
+		query = query.Where("handler_unit_id = ?", *filter.HandlerUnitID)
+	}
+	if len(filter.HandlerUnitIDs) > 0 {
+		query = query.Where("handler_unit_id IN ?", filter.HandlerUnitIDs)
 	}
 	return query
 }
@@ -305,7 +313,7 @@ type StatusCount struct {
 	Count  int64  `json:"count"`
 }
 
-func GetLetterStatusStats(startTime, endTime *time.Time, unitNames []string) ([]StatusCount, error) {
+func GetLetterStatusStats(startTime, endTime *time.Time, unitNames []string, handlerUserID ...uint) ([]StatusCount, error) {
 	var results []StatusCount
 	query := DB.Model(&model.Letter{}).
 		Select("current_status as status, count(*) as count")
@@ -318,8 +326,11 @@ func GetLetterStatusStats(startTime, endTime *time.Time, unitNames []string) ([]
 	if len(unitNames) > 0 {
 		unitIDs := unitNamesToIDs(unitNames)
 		if len(unitIDs) > 0 {
-			query = query.Where("current_unit_id IN ?", unitIDs)
+			query = query.Where("handler_unit_id IN ?", unitIDs)
 		}
+	}
+	if len(handlerUserID) > 0 && handlerUserID[0] > 0 {
+		query = query.Where("handler_user_id = ?", handlerUserID[0])
 	}
 	err := query.Group("current_status").
 		Scan(&results).Error
@@ -331,15 +342,18 @@ type ChannelCount struct {
 	Count   int64  `json:"count"`
 }
 
-func GetLetterChannelStats(unitNames []string) ([]ChannelCount, error) {
+func GetLetterChannelStats(unitNames []string, handlerUserID ...uint) ([]ChannelCount, error) {
 	var results []ChannelCount
 	query := DB.Model(&model.Letter{}).
 		Select("channel, count(*) as count")
 	if len(unitNames) > 0 {
 		unitIDs := unitNamesToIDs(unitNames)
 		if len(unitIDs) > 0 {
-			query = query.Where("current_unit_id IN ?", unitIDs)
+			query = query.Where("handler_unit_id IN ?", unitIDs)
 		}
+	}
+	if len(handlerUserID) > 0 && handlerUserID[0] > 0 {
+		query = query.Where("handler_user_id = ?", handlerUserID[0])
 	}
 	err := query.Group("channel").
 		Scan(&results).Error
@@ -351,15 +365,18 @@ type MonthCount struct {
 	Count int64  `json:"count"`
 }
 
-func GetLetterMonthStats(unitNames []string) ([]MonthCount, error) {
+func GetLetterMonthStats(unitNames []string, handlerUserID ...uint) ([]MonthCount, error) {
 	var results []MonthCount
 	query := DB.Model(&model.Letter{}).
 		Select("DATE_FORMAT(received_at, '%Y-%m') as month, count(*) as count")
 	if len(unitNames) > 0 {
 		unitIDs := unitNamesToIDs(unitNames)
 		if len(unitIDs) > 0 {
-			query = query.Where("current_unit_id IN ?", unitIDs)
+			query = query.Where("handler_unit_id IN ?", unitIDs)
 		}
+	}
+	if len(handlerUserID) > 0 && handlerUserID[0] > 0 {
+		query = query.Where("handler_user_id = ?", handlerUserID[0])
 	}
 	err := query.Group("month").
 		Order("month ASC").
@@ -373,7 +390,7 @@ type CategoryCount struct {
 	Count    int64  `json:"count"`
 }
 
-func GetLetterCategoryStats(startTime, endTime *time.Time, unitNames []string) ([]CategoryCount, error) {
+func GetLetterCategoryStats(startTime, endTime *time.Time, unitNames []string, handlerUserID ...uint) ([]CategoryCount, error) {
 	var results []CategoryCount
 	query := DB.Model(&model.Letter{}).
 		Select("category_l1 as category, count(*) as count").
@@ -387,8 +404,11 @@ func GetLetterCategoryStats(startTime, endTime *time.Time, unitNames []string) (
 	if len(unitNames) > 0 {
 		unitIDs := unitNamesToIDs(unitNames)
 		if len(unitIDs) > 0 {
-			query = query.Where("current_unit_id IN ?", unitIDs)
+			query = query.Where("handler_unit_id IN ?", unitIDs)
 		}
+	}
+	if len(handlerUserID) > 0 && handlerUserID[0] > 0 {
+		query = query.Where("handler_user_id = ?", handlerUserID[0])
 	}
 	err := query.Group("category_l1").
 		Order("count DESC").
@@ -398,7 +418,7 @@ func GetLetterCategoryStats(startTime, endTime *time.Time, unitNames []string) (
 }
 
 // ByUnitID variants for direct ID-based queries
-func GetLetterStatusStatsByUnitIDs(startTime, endTime *time.Time, unitIDs []uint) ([]StatusCount, error) {
+func GetLetterStatusStatsByUnitIDs(startTime, endTime *time.Time, unitIDs []uint, handlerUserID ...uint) ([]StatusCount, error) {
 	var results []StatusCount
 	query := DB.Model(&model.Letter{}).
 		Select("current_status as status, count(*) as count")
@@ -409,31 +429,40 @@ func GetLetterStatusStatsByUnitIDs(startTime, endTime *time.Time, unitIDs []uint
 		query = query.Where("received_at <= ?", endTime)
 	}
 	if len(unitIDs) > 0 {
-		query = query.Where("current_unit_id IN ?", unitIDs)
+		query = query.Where("handler_unit_id IN ?", unitIDs)
+	}
+	if len(handlerUserID) > 0 && handlerUserID[0] > 0 {
+		query = query.Where("handler_user_id = ?", handlerUserID[0])
 	}
 	err := query.Group("current_status").
 		Scan(&results).Error
 	return results, err
 }
 
-func GetLetterChannelStatsByUnitIDs(unitIDs []uint) ([]ChannelCount, error) {
+func GetLetterChannelStatsByUnitIDs(unitIDs []uint, handlerUserID ...uint) ([]ChannelCount, error) {
 	var results []ChannelCount
 	query := DB.Model(&model.Letter{}).
 		Select("channel, count(*) as count")
 	if len(unitIDs) > 0 {
-		query = query.Where("current_unit_id IN ?", unitIDs)
+		query = query.Where("handler_unit_id IN ?", unitIDs)
+	}
+	if len(handlerUserID) > 0 && handlerUserID[0] > 0 {
+		query = query.Where("handler_user_id = ?", handlerUserID[0])
 	}
 	err := query.Group("channel").
 		Scan(&results).Error
 	return results, err
 }
 
-func GetLetterMonthStatsByUnitIDs(unitIDs []uint) ([]MonthCount, error) {
+func GetLetterMonthStatsByUnitIDs(unitIDs []uint, handlerUserID ...uint) ([]MonthCount, error) {
 	var results []MonthCount
 	query := DB.Model(&model.Letter{}).
 		Select("DATE_FORMAT(received_at, '%Y-%m') as month, count(*) as count")
 	if len(unitIDs) > 0 {
-		query = query.Where("current_unit_id IN ?", unitIDs)
+		query = query.Where("handler_unit_id IN ?", unitIDs)
+	}
+	if len(handlerUserID) > 0 && handlerUserID[0] > 0 {
+		query = query.Where("handler_user_id = ?", handlerUserID[0])
 	}
 	err := query.Group("month").
 		Order("month ASC").
@@ -442,7 +471,7 @@ func GetLetterMonthStatsByUnitIDs(unitIDs []uint) ([]MonthCount, error) {
 	return results, err
 }
 
-func GetLetterCategoryStatsByUnitIDs(startTime, endTime *time.Time, unitIDs []uint) ([]CategoryCount, error) {
+func GetLetterCategoryStatsByUnitIDs(startTime, endTime *time.Time, unitIDs []uint, handlerUserID ...uint) ([]CategoryCount, error) {
 	var results []CategoryCount
 	query := DB.Model(&model.Letter{}).
 		Select("category_l1 as category, count(*) as count").
@@ -454,7 +483,10 @@ func GetLetterCategoryStatsByUnitIDs(startTime, endTime *time.Time, unitIDs []ui
 		query = query.Where("received_at <= ?", endTime)
 	}
 	if len(unitIDs) > 0 {
-		query = query.Where("current_unit_id IN ?", unitIDs)
+		query = query.Where("handler_unit_id IN ?", unitIDs)
+	}
+	if len(handlerUserID) > 0 && handlerUserID[0] > 0 {
+		query = query.Where("handler_user_id = ?", handlerUserID[0])
 	}
 	err := query.Group("category_l1").
 		Order("count DESC").

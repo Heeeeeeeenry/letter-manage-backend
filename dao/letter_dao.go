@@ -10,23 +10,24 @@ import (
 )
 
 type LetterFilter struct {
-	Status     string
-	CategoryL1 string
-	CategoryL2 string
-	CategoryL3 string
-	Keyword    string
-	LetterNo   string
-	CitizenName string
-	Phone      string
-	IDCard     string
-	StartTime  *time.Time
-	EndTime    *time.Time
-	UnitName   string
-	UnitNames  []string
-	UnitID     *uint
-	UnitIDs    []uint
-	Page       int
-	PageSize   int
+	Status        string
+	CategoryL1    string
+	CategoryL2    string
+	CategoryL3    string
+	Keyword       string
+	LetterNo      string
+	CitizenName   string
+	Phone         string
+	IDCard        string
+	StartTime     *time.Time
+	EndTime       *time.Time
+	UnitName      string
+	UnitNames     []string
+	UnitID        *uint
+	UnitIDs       []uint
+	HandlerUserID *uint
+	Page          int
+	PageSize      int
 }
 
 // UnitNameToIDs 根据单位名称查找所有匹配的单位 ID
@@ -115,6 +116,9 @@ func buildLetterQuery(filter LetterFilter) *gorm.DB {
 		if len(allIDs) > 0 {
 			query = query.Where("current_unit_id IN ?", allIDs)
 		}
+	}
+	if filter.HandlerUserID != nil {
+		query = query.Where("handler_user_id = ?", *filter.HandlerUserID)
 	}
 	return query
 }

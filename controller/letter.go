@@ -93,7 +93,7 @@ func LetterController(c *gin.Context) {
 }
 
 func handleGetList(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
-	data, err := service.GetLetterList(args, user.UnitName, string(user.PermissionLevel))
+	data, err := service.GetLetterList(args, user)
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return

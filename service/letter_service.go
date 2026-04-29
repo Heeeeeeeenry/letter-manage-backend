@@ -15,7 +15,9 @@ func GenerateLetterNo() string {
 	return fmt.Sprintf("XJ%d", time.Now().UnixNano()/int64(time.Millisecond))
 }
 
-func GetLetterList(args map[string]interface{}, unitName string, permLevel string) (map[string]interface{}, error) {
+func GetLetterList(args map[string]interface{}, user *model.PoliceUser) (map[string]interface{}, error) {
+	unitName := user.UnitName
+	permLevel := string(user.PermissionLevel)
 	// Remove order field from args to prevent SQL injection
 	delete(args, "order")
 	filter := dao.LetterFilter{}
@@ -61,6 +63,13 @@ func GetLetterList(args map[string]interface{}, unitName string, permLevel strin
 	}
 	if v, ok := args["unit_name"].(string); ok {
 		filter.UnitName = v
+	}
+	// 查看模式：由后端从 session 中获取用户ID，避免前端传错
+	viewMode, _ := args["view_mode"].(string)
+	if viewMode == "personal" || permLevel == "OFFICER" {
+		if user.ID > 0 {
+			filter.HandlerUserID = &user.ID
+		}
 	}
 	filter.Page = 1
 	filter.PageSize = 20

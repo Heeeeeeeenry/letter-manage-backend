@@ -523,7 +523,6 @@ func GetProcessingList(unitName string, permLevel string, page, pageSize int, ha
 		)
 	} else if permLevel == "DISTRICT" {
 		// 区县局：可见本单位及下属单位的待处理信件
-		// 包含：正在处理、市局越级下发、待审核、以及指定给该用户的已下发信件
 		unitIDs := UnitNameToIDs(unitName)
 		if len(unitIDs) > 0 {
 			query = query.Where(
@@ -535,21 +534,52 @@ func GetProcessingList(unitName string, permLevel string, page, pageSize int, ha
 			query = query.Where("1 = 0")
 		}
 	} else {
-		// OFFICER：可见本单位的已下发、处理中、越级下发信件
-		unitIDs := UnitNameToIDs(unitName)
-		if len(unitIDs) > 0 {
-			query = query.Where(
-				"current_unit_id IN ? AND current_status IN ?",
-				unitIDs,
-				[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch},
-			)
+		// OFFICER：只能看到本单位已下发、处理中、越级下发的信件
+		// 使用 handlerUserID 查询用户的精确 unit_id，避免同名单位污染
+		if len(handlerUserID) > 0 && handlerUserID[0] > 0 {
+			// 通过用户ID找到精确的 unit_id
+			var userPolice model.PoliceUser
+			if err := DB.First(&userPolice, handlerUserID[0]).Error; err == nil && userPolice.UnitID != nil {
+				query = query.Where(
+					"current_unit_id = ? AND current_status IN ?",
+					*userPolice.UnitID,
+					[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch},
+				)
+			} else {
+				// 兜底：用名字查询（可能有多个同名单位）
+				unitIDs := UnitNameToIDs(unitName)
+				if len(unitIDs) > 0 {
+					query = query.Where(
+						"current_unit_id IN ? AND current_status IN ?",
+						unitIDs,
+						[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch},
+					)
+				} else {
+					query = query.Where("1 = 0")
+				}
+			}
 		} else {
-			query = query.Where("1 = 0")
+			unitIDs := UnitNameToIDs(unitName)
+			if len(unitIDs) > 0 {
+				query = query.Where(
+					"current_unit_id IN ? AND current_status IN ?",
+					unitIDs,
+					[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch},
+				)
+			} else {
+				query = query.Where("1 = 0")
+			}
 		}
 	}
-	// 处理人过滤：显示分配给我的 + 未分配的信件
+	// 处理人过滤
 	if len(handlerUserID) > 0 && handlerUserID[0] > 0 {
-		query = query.Where("(handler_user_id = ? OR handler_user_id IS NULL)", handlerUserID[0])
+		if permLevel == "CITY" {
+			// CITY：看到分配给我的 + 未分配的信件
+			query = query.Where("(handler_user_id = ? OR handler_user_id IS NULL)", handlerUserID[0])
+		} else {
+			// DISTRICT / OFFICER：只看到下发到本人的信件
+			query = query.Where("handler_user_id = ?", handlerUserID[0])
+		}
 	}
 	var total int64
 	if err := query.Count(&total).Error; err != nil {

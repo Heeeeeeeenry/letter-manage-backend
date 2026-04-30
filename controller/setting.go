@@ -112,7 +112,7 @@ func SettingController(c *gin.Context) {
 			c.JSON(http.StatusOK, model.ErrorResp("无权限"))
 			return
 		}
-		data, err := service.GetUserList(req.Args, user.UnitName, string(user.PermissionLevel), user.IsAdmin, user.UnitID)
+		data, err := service.GetUserList(req.Args, string(user.PermissionLevel), user.IsAdmin, user.UnitID)
 		if err != nil {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 			return
@@ -184,7 +184,7 @@ func SettingController(c *gin.Context) {
 					return
 				}
 				// 规则4：检查目标用户的单位是否在当前用户的管理范围内
-				if !isUnitInScope(user, targetUser.UnitName, targetUser.UnitID) {
+				if !isUnitInScope(user, dao.GetUnitNameByID(targetUser.UnitID), targetUser.UnitID) {
 					c.JSON(http.StatusOK, model.ErrorResp("无权限管理该单位的用户"))
 					return
 				}
@@ -224,7 +224,7 @@ func SettingController(c *gin.Context) {
 						return
 					}
 					// 4. 必须在单位管理范围内
-					if !isUnitInScope(user, targetUser.UnitName, targetUser.UnitID) {
+					if !isUnitInScope(user, dao.GetUnitNameByID(targetUser.UnitID), targetUser.UnitID) {
 						c.JSON(http.StatusOK, model.ErrorResp("无权限管理该单位的用户"))
 						return
 					}
@@ -266,7 +266,7 @@ func SettingController(c *gin.Context) {
 					return
 				}
 				// 4. 检查目标用户的单位是否在当前用户的管理范围内
-				if !isUnitInScope(user, targetUser.UnitName, targetUser.UnitID) {
+				if !isUnitInScope(user, dao.GetUnitNameByID(targetUser.UnitID), targetUser.UnitID) {
 					c.JSON(http.StatusOK, model.ErrorResp("无权限管理该单位的用户"))
 					return
 				}
@@ -422,10 +422,10 @@ func isUnitInScope(user *model.PoliceUser, targetUnit string, targetUnitID ...*u
 		return true
 	case model.PermissionDistrict:
 		// 区县局：可管理本单位及下属单位
-		if user.UnitName == targetUnit {
+		if dao.GetUnitNameByID(user.UnitID) == targetUnit {
 			return true
 		}
-		subUnits := dao.GetSubordinateUnitNames(user.UnitName)
+		subUnits := dao.GetSubordinateUnitNames(dao.GetUnitNameByID(user.UnitID))
 		for _, u := range subUnits {
 			if u == targetUnit {
 				return true
@@ -434,6 +434,6 @@ func isUnitInScope(user *model.PoliceUser, targetUnit string, targetUnitID ...*u
 		return false
 	default:
 		// OFFICER：只能管理本单位
-		return user.UnitName == targetUnit
+		return dao.GetUnitNameByID(user.UnitID) == targetUnit
 	}
 }

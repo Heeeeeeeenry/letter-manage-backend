@@ -28,6 +28,8 @@ type LetterFilter struct {
 	HandlerUserID *uint
 	HandlerUnitID *uint
 	HandlerUnitIDs []uint
+	AllUnitID     *uint
+	AllUnitIDs    []uint
 	Page          int
 	PageSize      int
 }
@@ -122,11 +124,19 @@ func buildLetterQuery(filter LetterFilter) *gorm.DB {
 	if filter.HandlerUserID != nil {
 		query = query.Where("handler_user_id = ?", *filter.HandlerUserID)
 	}
-	if filter.HandlerUnitID != nil {
+	if filter.HandlerUnitID != nil && filter.AllUnitID != nil {
+		query = query.Where("(handler_unit_id = ? OR current_unit_id = ?)", *filter.HandlerUnitID, *filter.AllUnitID)
+	} else if filter.HandlerUnitID != nil {
 		query = query.Where("handler_unit_id = ?", *filter.HandlerUnitID)
+	} else if filter.AllUnitID != nil {
+		query = query.Where("current_unit_id = ?", *filter.AllUnitID)
 	}
-	if len(filter.HandlerUnitIDs) > 0 {
+	if len(filter.HandlerUnitIDs) > 0 && len(filter.AllUnitIDs) > 0 {
+		query = query.Where("(handler_unit_id IN ? OR current_unit_id IN ?)", filter.HandlerUnitIDs, filter.AllUnitIDs)
+	} else if len(filter.HandlerUnitIDs) > 0 {
 		query = query.Where("handler_unit_id IN ?", filter.HandlerUnitIDs)
+	} else if len(filter.AllUnitIDs) > 0 {
+		query = query.Where("current_unit_id IN ?", filter.AllUnitIDs)
 	}
 	return query
 }
@@ -510,14 +520,20 @@ func unitNamesToIDs(names []string) []uint {
 	return ids
 }
 
-func GetDispatchList(unitName string, permLevel string, page, pageSize int) ([]model.Letter, int64, error) {
+func GetDispatchList(unitID *uint, permLevel string, page, pageSize int) ([]model.Letter, int64, error) {
 	query := DB.Model(&model.Letter{})
 	switch permLevel {
 	case "CITY":
 		query = query.Where("current_status = ?", model.StatusPreProcess)
 	case "DISTRICT":
 		// 区县局：显示市局下发至本单位及下属单位的信件，待进一步下发
-		unitIDs := UnitNameToIDs(unitName)
+		var unitIDs []uint
+		if unitID != nil {
+			unitIDs = GetSubordinateUnitIDs(*unitID)
+			if len(unitIDs) == 0 {
+				unitIDs = []uint{*unitID}
+			}
+		}
 		if len(unitIDs) > 0 {
 			query = query.Where(
 				"current_unit_id IN ? AND current_status IN ?",
@@ -546,7 +562,7 @@ func GetDispatchList(unitName string, permLevel string, page, pageSize int) ([]m
 	return letters, total, err
 }
 
-func GetProcessingList(unitName string, permLevel string, page, pageSize int, handlerUserID ...uint) ([]model.Letter, int64, error) {
+func GetProcessingList(unitID *uint, permLevel string, page, pageSize int, handlerUserID ...uint) ([]model.Letter, int64, error) {
 	query := DB.Model(&model.Letter{})
 
 	// 市局可看待审核、处理中的信件（不含已下发走的）
@@ -558,11 +574,17 @@ func GetProcessingList(unitName string, permLevel string, page, pageSize int, ha
 			[]string{model.StatusProcessing, model.StatusPendingDistrictAudit, model.StatusPendingCityAudit},
 		)
 	} else if permLevel == "DISTRICT" {
-		// 区县局：可见本单位及下属单位的待处理信件
-		unitIDs := UnitNameToIDs(unitName)
+		// 区县局：handler_unit_id 过滤本单位及下属单位的信件
+		var unitIDs []uint
+		if unitID != nil {
+			unitIDs = GetSubordinateUnitIDs(*unitID)
+			if len(unitIDs) == 0 {
+				unitIDs = []uint{*unitID}
+			}
+		}
 		if len(unitIDs) > 0 {
 			query = query.Where(
-				"current_unit_id IN ? AND current_status IN ?",
+				"handler_unit_id IN ? AND current_status IN ?",
 				unitIDs,
 				[]string{model.StatusProcessing, model.StatusCityDirectDispatch, model.StatusPendingDistrictAudit, model.StatusDispatched},
 			)
@@ -582,8 +604,8 @@ func GetProcessingList(unitName string, permLevel string, page, pageSize int, ha
 					[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch},
 				)
 			} else {
-				// 兜底：用名字查询（可能有多个同名单位）
-				unitIDs := UnitNameToIDs(unitName)
+				// 兜底：unitID 为空，返回空结果
+				var unitIDs []uint
 				if len(unitIDs) > 0 {
 					query = query.Where(
 						"current_unit_id IN ? AND current_status IN ?",
@@ -595,11 +617,11 @@ func GetProcessingList(unitName string, permLevel string, page, pageSize int, ha
 				}
 			}
 		} else {
-			unitIDs := UnitNameToIDs(unitName)
-			if len(unitIDs) > 0 {
+			// 无 handlerUserID，使用 unitID 精确过滤
+			if unitID != nil {
 				query = query.Where(
-					"current_unit_id IN ? AND current_status IN ?",
-					unitIDs,
+					"current_unit_id = ? AND current_status IN ?",
+					*unitID,
 					[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch},
 				)
 			} else {
@@ -682,7 +704,7 @@ func GetProcessingListByUnitID(unitID uint, permLevel string, page, pageSize int
 	return letters, total, err
 }
 
-func GetAuditList(unitName string, permLevel string, page, pageSize int) ([]model.Letter, int64, error) {
+func GetAuditList(unitID *uint, permLevel string, page, pageSize int) ([]model.Letter, int64, error) {
 	query := DB.Model(&model.Letter{})
 	switch permLevel {
 	case "CITY":
@@ -690,7 +712,13 @@ func GetAuditList(unitName string, permLevel string, page, pageSize int) ([]mode
 		query = query.Where("current_status IN ?", []string{model.StatusPendingVerification, model.StatusPendingCityAudit, model.StatusPendingDistrictAudit})
 	case "DISTRICT":
 		// 分县局：查看下发至本单位的待核查信件 + 本单位科室已反馈的信件
-		unitIDs := UnitNameToIDs(unitName)
+		var unitIDs []uint
+		if unitID != nil {
+			unitIDs = GetSubordinateUnitIDs(*unitID)
+			if len(unitIDs) == 0 {
+				unitIDs = []uint{*unitID}
+			}
+		}
 		if len(unitIDs) > 0 {
 			query = query.Where(
 				"(current_status = ? AND current_unit_id IN ?) OR (current_status = ? AND current_unit_id IN ?)",

@@ -230,7 +230,7 @@ func LevelRank(level string) int {
 
 // Users
 
-func GetUserList(args map[string]interface{}, currentUnitName string, permLevel string, currentIsAdmin bool, currentUnitID ...*uint) (map[string]interface{}, error) {
+func GetUserList(args map[string]interface{}, permLevel string, currentIsAdmin bool, currentUnitID *uint) (map[string]interface{}, error) {
 	page := 1
 	pageSize := 20
 	if v, ok := args["page"].(float64); ok {
@@ -242,22 +242,25 @@ func GetUserList(args map[string]interface{}, currentUnitName string, permLevel 
 	// 权限数据隔离：根据用户级别限制可见的用户范围
 	var unitFilter string
 	var unitIDArg *uint
-	if len(currentUnitID) > 0 {
-		unitIDArg = currentUnitID[0]
+	if currentUnitID != nil {
+		unitIDArg = currentUnitID
 	}
 	switch permLevel {
 	case "CITY":
 		// 市局：可见所有用户
 	case "DISTRICT":
-		// 区县局：可见本单位及下属单位的用户
-		subUnits := getSubordinateUnitNames(currentUnitName)
+	// 区县局：可查看本单位及下属单位的用户
+		var subUnits []string
+		if currentUnitID != nil {
+			subUnits = getSubordinateUnitNames(dao.GetUnitNameByID(currentUnitID))
+		}
 		if len(subUnits) > 0 {
 			// 用户管理按单位过滤，可以传空字符串表示不过滤，但这里我们需要处理多单位
 			// 简化处理：将单位名数组传给 DAO
 		}
-		unitFilter = currentUnitName
+		unitFilter = dao.GetUnitNameByID(currentUnitID)
 	default:
-		unitFilter = currentUnitName
+		unitFilter = dao.GetUnitNameByID(currentUnitID)
 	}
 	users, total, err := dao.GetUserList(page, pageSize, unitFilter, permLevel, currentIsAdmin, unitIDArg)
 	if err != nil {
@@ -336,24 +339,12 @@ func CreateUser(args map[string]interface{}) error {
 	if v, ok := args["phone"].(string); ok {
 		user.Phone = v
 	}
-	if v, ok := args["unit_name"].(string); ok {
-		user.UnitName = dao.NormalizeUnitName(v)
-	}
 	// 如果传了 unit_id，通过 ID 查找单位
 	if v, ok := args["unit_id"].(float64); ok {
 		unit, err := dao.GetUnitByID(uint(v))
 		if err == nil && unit != nil {
 			u := uint(v)
 			user.UnitID = &u
-			if user.UnitName == "" {
-				user.UnitName = unit.Level3
-				if user.UnitName == "" {
-					user.UnitName = unit.Level2
-				}
-				if user.UnitName == "" {
-					user.UnitName = unit.Level1
-				}
-			}
 		}
 	}
 	if v, ok := args["permission_level"].(string); ok {
@@ -395,26 +386,9 @@ func UpdateUser(args map[string]interface{}) error {
 	if v, ok := args["phone"].(string); ok {
 		user.Phone = v
 	}
-	if v, ok := args["unit_name"].(string); ok {
-		user.UnitName = dao.NormalizeUnitName(v)
-	}
-	// 如果传了 unit_id，更新 UnitID
 	if v, ok := args["unit_id"].(float64); ok {
 		u := uint(v)
 		user.UnitID = &u
-		// 如果未传 unit_name，从单位表中补充
-		if _, hasUnitName := args["unit_name"]; !hasUnitName {
-			if unit, err := dao.GetUnitByID(uint(v)); err == nil && unit != nil {
-				name := unit.Level3
-				if name == "" {
-					name = unit.Level2
-				}
-				if name == "" {
-					name = unit.Level1
-				}
-				user.UnitName = name
-			}
-		}
 	}
 	if v, ok := args["permission_level"].(string); ok {
 		user.PermissionLevel = model.PermissionLevel(v)
@@ -598,8 +572,8 @@ func GetDispatchUnits(operator *model.PoliceUser) ([]model.Unit, error) {
 	if err != nil {
 		return nil, err
 	}
-	// 归一化单位名：全路径 → 短名
-	shortName := dao.NormalizeUnitName(operator.UnitName)
+	// 归一化单位名
+	shortName := dao.GetUnitNameByID(operator.UnitID)
 	switch operator.PermissionLevel {
 	case model.PermissionCity:
 		return allUnits, nil

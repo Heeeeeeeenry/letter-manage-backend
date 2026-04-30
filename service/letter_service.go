@@ -66,10 +66,33 @@ func GetLetterList(args map[string]interface{}, user *model.PoliceUser) (map[str
 	// 查看模式：由后端从 session 中获取用户ID，避免前端传错
 	viewMode, _ := args["view_mode"].(string)
 	if viewMode == "personal" || permLevel == "OFFICER" {
+		// 个人模式：仅过滤处理人，不加单位过滤
 		if user.ID > 0 {
 			filter.HandlerUserID = &user.ID
 		}
+	} else {
+		// 单位/全部模式：按 handler 所属单位过滤
+		switch permLevel {
+		case "CITY":
+			// 市局：可见所有信件，不过滤
+		case "DISTRICT":
+			// 区县局：handler_unit_id + current_unit_id 双过滤，覆盖处理中+待下发的信件
+			if user.UnitID != nil {
+				unitIDs := dao.GetSubordinateUnitIDs(*user.UnitID)
+				if len(unitIDs) > 0 {
+					filter.HandlerUnitIDs = unitIDs
+					filter.AllUnitIDs = unitIDs
+				} else {
+					uid := *user.UnitID
+					filter.HandlerUnitID = &uid
+					filter.AllUnitID = &uid
+				}
+			}
+		default:
+			// OFFICER 不会进入此分支（permLevel == OFFICER 已走个人模式）
+		}
 	}
+
 	filter.Page = 1
 	filter.PageSize = 20
 	if v, ok := args["page"].(float64); ok {
@@ -77,27 +100,6 @@ func GetLetterList(args map[string]interface{}, user *model.PoliceUser) (map[str
 	}
 	if v, ok := args["page_size"].(float64); ok {
 		filter.PageSize = int(v)
-	}
-
-	// 权限数据隔离：根据用户权限级别自动添加单位过滤
-	switch permLevel {
-	case "CITY":
-		// 市局：可见所有信件，不过滤
-	case "DISTRICT":
-		// 区县局：handler_unit_id 过滤（handler 所属单位，而非信件当前所处单位）
-		if user.UnitID != nil {
-			unitIDs := dao.GetSubordinateUnitIDs(*user.UnitID)
-			if len(unitIDs) > 0 {
-				filter.HandlerUnitIDs = unitIDs
-			} else {
-				filter.HandlerUnitID = user.UnitID
-			}
-		}
-	default:
-		// OFFICER：仅可见本单位处理人的信件
-		if user.UnitID != nil {
-			filter.HandlerUnitID = user.UnitID
-		}
 	}
 
 	letters, total, err := dao.GetLetterList(filter)
@@ -124,7 +126,7 @@ func getSubordinateUnitNames(unitName string) []string {
 	return dao.GetSubordinateUnitNames(unitName)
 }
 
-func GetDispatchList(unitName string, permLevel string, args map[string]interface{}) (map[string]interface{}, error) {
+func GetDispatchList(unitID *uint, permLevel string, args map[string]interface{}) (map[string]interface{}, error) {
 	page := 1
 	pageSize := 20
 	if v, ok := args["page"].(float64); ok {
@@ -133,7 +135,7 @@ func GetDispatchList(unitName string, permLevel string, args map[string]interfac
 	if v, ok := args["page_size"].(float64); ok {
 		pageSize = int(v)
 	}
-	letters, total, err := dao.GetDispatchList(unitName, permLevel, page, pageSize)
+	letters, total, err := dao.GetDispatchList(unitID, permLevel, page, pageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +147,7 @@ func GetDispatchList(unitName string, permLevel string, args map[string]interfac
 	}, nil
 }
 
-func GetProcessingList(unitName string, permLevel string, args map[string]interface{}, userID ...uint) (map[string]interface{}, error) {
+func GetProcessingList(unitID *uint, permLevel string, args map[string]interface{}, userID ...uint) (map[string]interface{}, error) {
 	page := 1
 	pageSize := 20
 	if v, ok := args["page"].(float64); ok {
@@ -158,7 +160,7 @@ func GetProcessingList(unitName string, permLevel string, args map[string]interf
 	if len(userID) > 0 {
 		handlerID = userID[0]
 	}
-	letters, total, err := dao.GetProcessingList(unitName, permLevel, page, pageSize, handlerID)
+	letters, total, err := dao.GetProcessingList(unitID, permLevel, page, pageSize, handlerID)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +172,7 @@ func GetProcessingList(unitName string, permLevel string, args map[string]interf
 	}, nil
 }
 
-func GetAuditList(unitName string, permLevel string, args map[string]interface{}) (map[string]interface{}, error) {
+func GetAuditList(unitID *uint, permLevel string, args map[string]interface{}) (map[string]interface{}, error) {
 	page := 1
 	pageSize := 20
 	if v, ok := args["page"].(float64); ok {
@@ -179,7 +181,7 @@ func GetAuditList(unitName string, permLevel string, args map[string]interface{}
 	if v, ok := args["page_size"].(float64); ok {
 		pageSize = int(v)
 	}
-	letters, total, err := dao.GetAuditList(unitName, permLevel, page, pageSize)
+	letters, total, err := dao.GetAuditList(unitID, permLevel, page, pageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -192,30 +194,30 @@ func GetAuditList(unitName string, permLevel string, args map[string]interface{}
 }
 
 // GetLettersByPhone 获取某手机号的所有信件（带权限过滤）
-func GetLettersByPhone(phone, unitName, permLevel string) ([]model.Letter, error) {
+func GetLettersByPhone(phone, permLevel string, unitID *uint) ([]model.Letter, error) {
 	letters, err := dao.GetLettersByPhone(phone)
 	if err != nil {
 		return nil, err
 	}
-	return filterLettersByPermission(letters, unitName, permLevel), nil
+	return filterLettersByPermission(letters, permLevel, unitID), nil
 }
 
 // GetLettersByIDCard 获取某身份证的所有信件（带权限过滤）
-func GetLettersByIDCard(idCard, unitName, permLevel string) ([]model.Letter, error) {
+func GetLettersByIDCard(idCard, permLevel string, unitID *uint) ([]model.Letter, error) {
 	letters, err := dao.GetLettersByIDCard(idCard)
 	if err != nil {
 		return nil, err
 	}
-	return filterLettersByPermission(letters, unitName, permLevel), nil
+	return filterLettersByPermission(letters, permLevel, unitID), nil
 }
 
-func GetLetterDetail(letterNo string, unitName string, permLevel string, unitID ...*uint) (map[string]interface{}, error) {
+func GetLetterDetail(letterNo string, permLevel string, userUnitID *uint) (map[string]interface{}, error) {
 	letter, err := dao.GetLetterByNo(letterNo)
 	if err != nil {
 		return nil, err
 	}
 	// 权限检查：验证用户是否有权访问该信件
-	if !canAccessLetter(*letter, unitName, permLevel, unitID...) {
+	if !canAccessLetter(*letter, permLevel, userUnitID) {
 		return nil, errors.New("无权访问该信件")
 	}
 	flow, _ := dao.GetFlowByLetterNo(letterNo)
@@ -226,7 +228,7 @@ func GetLetterDetail(letterNo string, unitName string, permLevel string, unitID 
 	if letter.Phone != "" {
 		history, _ = dao.GetLettersByPhone(letter.Phone)
 		// 历史信件也要做权限过滤
-		history = filterLettersByPermission(history, unitName, permLevel)
+		history = filterLettersByPermission(history, permLevel, userUnitID)
 	}
 	return map[string]interface{}{
 		"letter":    letter,
@@ -238,11 +240,11 @@ func GetLetterDetail(letterNo string, unitName string, permLevel string, unitID 
 }
 
 // canAccessLetter 检查用户是否有权访问某封信件
-func canAccessLetter(letter model.Letter, unitName string, permLevel string, unitID ...*uint) bool {
-	// 归一化单位名：处理全路径格式
-	normalizedUnit := normalizeUnitName(unitName)
+func canAccessLetter(letter model.Letter, permLevel string, userUnitID *uint) bool {
+	// 归一化单位名
+	normalizedUnit := dao.GetUnitNameByID(userUnitID)
 	// unit_id 检查：如果 letter 和 user 都有 unit_id 且相同，直接通过
-	if len(unitID) > 0 && unitID[0] != nil && letter.CurrentUnitID != nil && *letter.CurrentUnitID == *unitID[0] {
+	if userUnitID != nil && letter.CurrentUnitID != nil && *letter.CurrentUnitID == *userUnitID {
 		return true
 	}
 	switch permLevel {
@@ -251,8 +253,8 @@ func canAccessLetter(letter model.Letter, unitName string, permLevel string, uni
 	case "DISTRICT":
 		// DISTRICT 可以访问本单位及下属单位的信件
 		// 如果有 unitID，使用 ID 判断
-		if len(unitID) > 0 && unitID[0] != nil {
-			subIDs := dao.GetSubordinateUnitIDs(*unitID[0])
+		if userUnitID != nil {
+			subIDs := dao.GetSubordinateUnitIDs(*userUnitID)
 			if letter.CurrentUnitID != nil {
 				for _, sid := range subIDs {
 					if sid == *letter.CurrentUnitID {
@@ -264,8 +266,8 @@ func canAccessLetter(letter model.Letter, unitName string, permLevel string, uni
 		// fallback: 通过 CurrentUnitID 查询单位名称做字符串比较
 		letterUnitName := getUnitNameFromID(letter.CurrentUnitID)
 		// 全路径转为短名，和 subordinate names 做比较
-		letterShortName := normalizeUnitName(letterUnitName)
-		subUnits := dao.GetSubordinateUnitNames(unitName)
+		letterShortName := dao.NormalizeUnitName(letterUnitName)
+		subUnits := dao.GetSubordinateUnitNames(dao.GetUnitNameByID(userUnitID))
 		for _, u := range subUnits {
 			if u == letterShortName {
 				return true
@@ -275,12 +277,12 @@ func canAccessLetter(letter model.Letter, unitName string, permLevel string, uni
 	default:
 		// OFFICER 只能访问本单位的信件
 		// 如果有 unitID，直接比较 unit_id
-		if len(unitID) > 0 && unitID[0] != nil && letter.CurrentUnitID != nil && *letter.CurrentUnitID == *unitID[0] {
+		if userUnitID != nil && letter.CurrentUnitID != nil && *letter.CurrentUnitID == *userUnitID {
 			return true
 		}
 		// fallback: 通过名称比较
 		letterUnitName := getUnitNameFromID(letter.CurrentUnitID)
-		letterShortName := normalizeUnitName(letterUnitName)
+		letterShortName := dao.NormalizeUnitName(letterUnitName)
 		return letterShortName == normalizedUnit
 	}
 }
@@ -322,10 +324,10 @@ func getUnitNameFromID(unitID *uint) string {
 }
 
 // filterLettersByPermission 根据权限过滤信件列表
-func filterLettersByPermission(letters []model.Letter, unitName string, permLevel string) []model.Letter {
+func filterLettersByPermission(letters []model.Letter, permLevel string, userUnitID *uint) []model.Letter {
 	var filtered []model.Letter
 	for _, l := range letters {
-		if canAccessLetter(l, unitName, permLevel) {
+		if canAccessLetter(l, permLevel, userUnitID) {
 			filtered = append(filtered, l)
 		}
 	}
@@ -486,7 +488,7 @@ func UpdateLetterStatus(args map[string]interface{}, operator *model.PoliceUser)
 		"remark":        remark,
 		"operator":      operator.Name,
 		"operator_id":   operator.PoliceNumber,
-		"operator_unit": operator.UnitName,
+		"operator_unit": dao.GetUnitNameByID(operator.UnitID),
 		"timestamp":     time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, flowRecord)
@@ -632,7 +634,7 @@ func DispatchLetter(args map[string]interface{}, operator *model.PoliceUser) err
 		"remark":         remark,
 		"operator":       operator.Name,
 		"operator_id":    operator.PoliceNumber,
-		"operator_unit":  operator.UnitName,
+		"operator_unit":  dao.GetUnitNameByID(operator.UnitID),
 		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
 	if err := appendFlowRecord(letterNo, record); err != nil {
@@ -689,7 +691,7 @@ func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string, args
 		return true, nil
 	case model.PermissionDistrict:
 		// district can dispatch to self or subordinates
-		if operator.UnitName == targetUnit {
+		if dao.GetUnitNameByID(operator.UnitID) == targetUnit {
 			return true, nil
 		}
 		// check units table: use unitID if available
@@ -726,7 +728,7 @@ func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string, args
 			return false, err
 		}
 		for _, u := range units {
-			if u.Level2 == operator.UnitName || u.Level1 == operator.UnitName {
+			if operator.UnitID != nil && u.ID == *operator.UnitID {
 				fullName := u.Level1
 				if u.Level2 != "" {
 					fullName = u.Level2
@@ -756,7 +758,7 @@ func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string, args
 			}
 		}
 		// fallback to string-based check
-		perm, err := dao.GetDispatchPermissionByUnit(operator.UnitName)
+		perm, err := dao.GetDispatchPermissionByUnitID(*operator.UnitID)
 		if err != nil {
 			return false, err
 		}
@@ -782,16 +784,43 @@ func MarkInvalid(args map[string]interface{}, operator *model.PoliceUser) error 
 		return errors.New("letter_no required")
 	}
 	remark, _ := args["remark"].(string)
-	if err := dao.UpdateLetterStatus(letterNo, model.StatusInvalid); err != nil {
+
+	// 获取当前信件
+	letter, err := dao.GetLetterByNo(letterNo)
+	if err != nil {
 		return err
 	}
+
+	// 找上级单位：OFFICER→DISTRICT, DISTRICT→CITY
+	var targetUnitID *uint
+	if operator.UnitID != nil {
+		targetUnitID = dao.GetParentUnitID(*operator.UnitID)
+	}
+	// 如果找不到上级，使用当前单位
+	if targetUnitID == nil {
+		targetUnitID = operator.UnitID
+	}
+
+	// 更新状态为待核查，流转到上级单位，清除处理人
+	updates := map[string]interface{}{
+		"current_status":  model.StatusPendingVerification,
+		"current_unit_id": targetUnitID,
+		"handler_user_id": nil,
+		"handler_unit_id": nil,
+	}
+	if err := dao.UpdateLetterFields(letterNo, updates); err != nil {
+		return err
+	}
+
 	record := map[string]interface{}{
 		"action":         "mark_invalid",
-		"status":         model.StatusInvalid,
+		"status":         model.StatusPendingVerification,
 		"remark":         remark,
+		"from_unit":      getUnitNameFromID(letter.CurrentUnitID),
+		"to_unit":        getUnitNameFromID(targetUnitID),
 		"operator":       operator.Name,
 		"operator_id":    operator.PoliceNumber,
-		"operator_unit":  operator.UnitName,
+		"operator_unit":  dao.GetUnitNameByID(operator.UnitID),
 		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, record)
@@ -887,7 +916,7 @@ func SubmitProcessing(args map[string]interface{}, operator *model.PoliceUser) e
 		"remark":         remark,
 		"operator":       operator.Name,
 		"operator_id":    operator.PoliceNumber,
-		"operator_unit":  operator.UnitName,
+		"operator_unit":  dao.GetUnitNameByID(operator.UnitID),
 		"from_unit":      getUnitNameFromObj(letter.CurrentUnitObj),
 		"to_unit":        parentUnit,
 		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
@@ -914,11 +943,11 @@ func HandleBySelf(args map[string]interface{}, operator *model.PoliceUser) error
 	record := map[string]interface{}{
 		"action":         "handle_by_self",
 		"status":         model.StatusProcessing,
-		"unit":           operator.UnitName,
+		"unit":           dao.GetUnitNameByID(operator.UnitID),
 		"remark":         remark,
 		"operator":       operator.Name,
 		"operator_id":    operator.PoliceNumber,
-		"operator_unit":  operator.UnitName,
+		"operator_unit":  dao.GetUnitNameByID(operator.UnitID),
 		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, record)
@@ -986,14 +1015,16 @@ func ReturnLetter(args map[string]interface{}, operator *model.PoliceUser) error
 			}
 		}
 	}
-	// 根据退回者身份决定退回状态
-	// DISTRICT退回→回到预处理（市局下发工作台可见）
-	// OFFICER退回→回到待区县局下发（区县局下发工作台可见）
+	// 根据退回者身份决定退回状态和退回单位
+	// DISTRICT退回→回到区县局下发工作台（状态=待区县局下发，单位=操作人单位）
+	// OFFICER退回→回到区县局下发工作台（状态=待区县局下发，单位=上级单位）
 	switch operator.PermissionLevel {
 	case model.PermissionDistrict:
-		if prevStatus == "" || prevStatus == model.StatusDispatched || prevStatus == model.StatusProcessing {
-			prevStatus = model.StatusPreProcess
+		if prevStatus == "" {
+			prevStatus = model.StatusPendingDistrictDispatch
 		}
+		// DISTRICT 退回：信件回到自己的单位，而非 CITY 的 from_unit
+		prevUnitID = operator.UnitID
 	case model.PermissionOfficer:
 		if prevStatus == "" || prevStatus == model.StatusDispatched || prevStatus == model.StatusProcessing {
 			prevStatus = model.StatusPendingDistrictDispatch
@@ -1006,39 +1037,41 @@ func ReturnLetter(args map[string]interface{}, operator *model.PoliceUser) error
 		prevUnit = getUnitNameFromID(letter.CurrentUnitID)
 	}
 
-	// 通过全路径名称匹配上级单位 ID
-	allUnits, err := dao.GetAllUnits()
-	if err == nil {
-		for _, u := range allUnits {
-			var parts []string
-			if u.Level1 != "" {
-				parts = append(parts, u.Level1)
-			}
-			if u.Level2 != "" {
-				parts = append(parts, u.Level2)
-			}
-			if u.Level3 != "" {
-				parts = append(parts, u.Level3)
-			}
-			fullPath := strings.Join(parts, " / ")
-			if fullPath == prevUnit {
-				prevUnitID = &u.ID
-				break
-			}
-		}
-		// 如果全路径没匹配到，退化用短名匹配
-		if prevUnitID == nil {
+	// 通过全路径名称匹配上级单位 ID（仅当 prevUnitID 未设置时）
+	if prevUnitID == nil {
+		allUnits, err := dao.GetAllUnits()
+		if err == nil {
 			for _, u := range allUnits {
-				shortName := u.Level3
-				if shortName == "" {
-					shortName = u.Level2
+				var parts []string
+				if u.Level1 != "" {
+					parts = append(parts, u.Level1)
 				}
-				if shortName == "" {
-					shortName = u.Level1
+				if u.Level2 != "" {
+					parts = append(parts, u.Level2)
 				}
-				if shortName == prevUnit {
+				if u.Level3 != "" {
+					parts = append(parts, u.Level3)
+				}
+				fullPath := strings.Join(parts, " / ")
+				if fullPath == prevUnit {
 					prevUnitID = &u.ID
 					break
+				}
+			}
+			// 如果全路径没匹配到，退化用短名匹配
+			if prevUnitID == nil {
+				for _, u := range allUnits {
+					shortName := u.Level3
+					if shortName == "" {
+						shortName = u.Level2
+					}
+					if shortName == "" {
+						shortName = u.Level1
+					}
+					if shortName == prevUnit {
+						prevUnitID = &u.ID
+						break
+					}
 				}
 			}
 		}
@@ -1074,7 +1107,7 @@ func ReturnLetter(args map[string]interface{}, operator *model.PoliceUser) error
 		"remark":         remark,
 		"operator":       operator.Name,
 		"operator_id":    operator.PoliceNumber,
-		"operator_unit":  operator.UnitName,
+		"operator_unit":  dao.GetUnitNameByID(operator.UnitID),
 		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, record)
@@ -1197,7 +1230,7 @@ func AuditReject(args map[string]interface{}, operator *model.PoliceUser) error 
 		"remark":         remark,
 		"operator":       operator.Name,
 		"operator_id":    operator.PoliceNumber,
-		"operator_unit":  operator.UnitName,
+		"operator_unit":  dao.GetUnitNameByID(operator.UnitID),
 		"from_unit":      getUnitNameFromObj(letter.CurrentUnitObj),
 		"to_unit":        processingUnit,
 		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),

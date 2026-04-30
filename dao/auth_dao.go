@@ -36,6 +36,24 @@ func GetUserUnitID(userID uint) *uint {
 	return user.UnitID
 }
 
+// GetUnitNameByID 根据 unit_id 获取单位短名称
+func GetUnitNameByID(unitID *uint) string {
+	if unitID == nil {
+		return ""
+	}
+	var unit model.Unit
+	if err := DB.First(&unit, *unitID).Error; err != nil {
+		return ""
+	}
+	if unit.Level3 != "" {
+		return unit.Level3
+	}
+	if unit.Level2 != "" {
+		return unit.Level2
+	}
+	return unit.Level1
+}
+
 // HasDispatchLevelUsersInUnit 检查目标单位是否存在 CITY 或 DISTRICT 级别的用户
 func HasDispatchLevelUsersInUnit(unitID uint) bool {
 	var count int64
@@ -253,6 +271,33 @@ func GetSubordinateUnitIDs(unitID uint) []uint {
 		}
 	}
 	return ids
+}
+
+// GetParentUnitID 获取上级单位 ID
+// 三级单位 → 二级单位，二级单位 → 一级单位
+func GetParentUnitID(unitID uint) *uint {
+	unit, err := GetUnitByID(unitID)
+	if err != nil {
+		return nil
+	}
+	allUnits, err := GetAllUnits()
+	if err != nil {
+		return nil
+	}
+	for _, u := range allUnits {
+		if unit.Level3 != "" {
+			// 三级单位：找同 Level1+Level2 且没有 Level3 的
+			if u.Level1 == unit.Level1 && u.Level2 == unit.Level2 && u.Level3 == "" {
+				return &u.ID
+			}
+		} else if unit.Level2 != "" {
+			// 二级单位：找同 Level1 且没有 Level2 的
+			if u.Level1 == unit.Level1 && u.Level2 == "" {
+				return &u.ID
+			}
+		}
+	}
+	return nil
 }
 
 // GetSubordinateUnitNames 获取某单位及其下属所有单位的短名称列表

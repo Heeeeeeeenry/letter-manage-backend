@@ -102,7 +102,7 @@ func handleGetList(c *gin.Context, args map[string]interface{}, user *model.Poli
 }
 
 func handleGetDispatchList(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
-	data, err := service.GetDispatchList(user.UnitName, string(user.PermissionLevel), args)
+	data, err := service.GetDispatchList(user.UnitID, string(user.PermissionLevel), args)
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return
@@ -111,7 +111,7 @@ func handleGetDispatchList(c *gin.Context, args map[string]interface{}, user *mo
 }
 
 func handleGetProcessingList(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
-	data, err := service.GetProcessingList(user.UnitName, string(user.PermissionLevel), args, user.ID)
+	data, err := service.GetProcessingList(user.UnitID, string(user.PermissionLevel), args, user.ID)
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return
@@ -120,7 +120,7 @@ func handleGetProcessingList(c *gin.Context, args map[string]interface{}, user *
 }
 
 func handleGetAuditList(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
-	data, err := service.GetAuditList(user.UnitName, string(user.PermissionLevel), args)
+	data, err := service.GetAuditList(user.UnitID, string(user.PermissionLevel), args)
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return
@@ -134,7 +134,7 @@ func handleGetDetail(c *gin.Context, args map[string]interface{}, user *model.Po
 		c.JSON(http.StatusOK, model.ErrorResp("letter_no required"))
 		return
 	}
-	data, err := service.GetLetterDetail(letterNo, user.UnitName, string(user.PermissionLevel), user.UnitID)
+	data, err := service.GetLetterDetail(letterNo, string(user.PermissionLevel), user.UnitID)
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return
@@ -162,7 +162,7 @@ func handleGetByPhone(c *gin.Context, args map[string]interface{}, user *model.P
 		c.JSON(http.StatusOK, model.ErrorResp("phone required"))
 		return
 	}
-	letters, err := service.GetLettersByPhone(phone, user.UnitName, string(user.PermissionLevel))
+	letters, err := service.GetLettersByPhone(phone, string(user.PermissionLevel), user.UnitID)
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return
@@ -176,7 +176,7 @@ func handleGetByIDCard(c *gin.Context, args map[string]interface{}, user *model.
 		c.JSON(http.StatusOK, model.ErrorResp("id_card required"))
 		return
 	}
-	letters, err := service.GetLettersByIDCard(idCard, user.UnitName, string(user.PermissionLevel))
+	letters, err := service.GetLettersByIDCard(idCard, string(user.PermissionLevel), user.UnitID)
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return

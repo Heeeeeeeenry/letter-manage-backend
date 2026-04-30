@@ -598,19 +598,21 @@ func GetDispatchUnits(operator *model.PoliceUser) ([]model.Unit, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 归一化单位名：全路径 → 短名
+	shortName := dao.NormalizeUnitName(operator.UnitName)
 	switch operator.PermissionLevel {
 	case model.PermissionCity:
 		return allUnits, nil
 	case model.PermissionDistrict:
 		var result []model.Unit
 		for _, u := range allUnits {
-			if u.Level1 == operator.UnitName || u.Level2 == operator.UnitName || u.Level3 == operator.UnitName {
+			if u.Level1 == shortName || u.Level2 == shortName || u.Level3 == shortName {
 				result = append(result, u)
 			}
 		}
 		return result, nil
 	default:
-		perm, err := dao.GetDispatchPermissionByUnit(operator.UnitName)
+		perm, err := dao.GetDispatchPermissionByUnit(shortName)
 		if err != nil || perm == nil {
 			return nil, nil
 		}

@@ -230,7 +230,7 @@ func LevelRank(level string) int {
 
 // Users
 
-func GetUserList(args map[string]interface{}, permLevel string, currentIsAdmin bool, currentUnitID *uint) (map[string]interface{}, error) {
+func GetUserList(args map[string]interface{}, permLevel string, currentIsAdmin bool, currentUnitID *uint, currentUserID uint) (map[string]interface{}, error) {
 	page := 1
 	pageSize := 20
 	if v, ok := args["page"].(float64); ok {
@@ -262,7 +262,7 @@ func GetUserList(args map[string]interface{}, permLevel string, currentIsAdmin b
 	default:
 		unitFilter = dao.GetUnitNameByID(currentUnitID)
 	}
-	users, total, err := dao.GetUserList(page, pageSize, unitFilter, permLevel, currentIsAdmin, unitIDArg)
+	users, total, err := dao.GetUserList(page, pageSize, unitFilter, permLevel, currentIsAdmin, currentUserID, unitIDArg)
 	if err != nil {
 		return nil, err
 	}
@@ -466,9 +466,9 @@ func CreateDispatchPermission(args map[string]interface{}) error {
 	}
 	if v, ok := args["dispatch_scope"]; ok {
 		b, _ := marshalJSON(v)
-		perm.DispatchScope = model.JSONRaw(b)
+		perm.CanDispatchTo = string(b)
 	} else {
-		perm.DispatchScope = model.JSONRaw("[]")
+		perm.CanDispatchTo = "[]"
 	}
 	return dao.CreateDispatchPermission(perm)
 }
@@ -499,7 +499,7 @@ func UpdateDispatchPermission(args map[string]interface{}) error {
 	}
 	if v, ok := args["dispatch_scope"]; ok {
 		b, _ := marshalJSON(v)
-		perm.DispatchScope = model.JSONRaw(b)
+		perm.CanDispatchTo = string(b)
 	}
 	return dao.UpdateDispatchPermission(perm)
 }
@@ -529,12 +529,13 @@ func GetSpecialFocusList() ([]model.SpecialFocus, error) {
 func CreateSpecialFocus(args map[string]interface{}) error {
 	sf := &model.SpecialFocus{}
 	if v, ok := args["tag_name"].(string); ok {
-		sf.TagName = v
+		sf.Name = v
 	}
-	if v, ok := args["description"].(string); ok {
-		sf.Description = v
+	if v, ok := args["keywords"]; ok {
+		b, _ := marshalJSON(v)
+		sf.Keywords = model.JSONRaw(b)
 	}
-	if sf.TagName == "" {
+	if sf.Name == "" {
 		return errors.New("tag_name required")
 	}
 	return dao.CreateSpecialFocus(sf)
@@ -550,10 +551,11 @@ func UpdateSpecialFocus(args map[string]interface{}) error {
 		return err
 	}
 	if v, ok := args["tag_name"].(string); ok {
-		sf.TagName = v
+		sf.Name = v
 	}
-	if v, ok := args["description"].(string); ok {
-		sf.Description = v
+	if v, ok := args["keywords"]; ok {
+		b, _ := marshalJSON(v)
+		sf.Keywords = model.JSONRaw(b)
 	}
 	return dao.UpdateSpecialFocus(sf)
 }
@@ -591,7 +593,7 @@ func GetDispatchUnits(operator *model.PoliceUser) ([]model.Unit, error) {
 			return nil, nil
 		}
 		var scope []string
-		_ = marshalJSONRaw(perm.DispatchScope, &scope)
+		json.Unmarshal([]byte(perm.CanDispatchTo), &scope)
 		var result []model.Unit
 		for _, u := range allUnits {
 			name := u.Level3

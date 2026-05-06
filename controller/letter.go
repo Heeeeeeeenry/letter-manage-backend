@@ -371,6 +371,13 @@ func handleFileUpload(c *gin.Context, user *model.PoliceUser) {
 	}
 
 	urlPath := fmt.Sprintf("/media/letters/%s/recordings/%s", letterNo, filename)
+
+	// 将附件信息写入 letter_attachments 表
+	if err := service.AppendAttachment(letterNo, fileType, urlPath, header.Filename); err != nil {
+		c.JSON(http.StatusOK, model.ErrorResp("save attachment record error: "+err.Error()))
+		return
+	}
+
 	c.JSON(http.StatusOK, model.SuccessResp(map[string]interface{}{
 		"file_url":  urlPath,
 		"file_name": header.Filename,

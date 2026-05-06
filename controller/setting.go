@@ -112,7 +112,7 @@ func SettingController(c *gin.Context) {
 			c.JSON(http.StatusOK, model.ErrorResp("无权限"))
 			return
 		}
-		data, err := service.GetUserList(req.Args, string(user.PermissionLevel), user.IsAdmin, user.UnitID)
+		data, err := service.GetUserList(req.Args, string(user.PermissionLevel), user.IsAdmin, user.UnitID, user.ID)
 		if err != nil {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 			return

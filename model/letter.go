@@ -4,41 +4,45 @@ import "time"
 
 // Letter represents the letters table
 type Letter struct {
-	ID              uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	LetterNo        string    `json:"letter_no" gorm:"column:letter_no;uniqueIndex;size:64;not null"`
-	CitizenName     string    `json:"citizen_name" gorm:"column:citizen_name;size:64"`
-	Phone           string    `json:"phone" gorm:"column:phone;size:32"`
-	IDCard          string    `json:"id_card" gorm:"column:id_card;size:32"`
-	ReceivedAt      time.Time `json:"received_at" gorm:"column:received_at"`
-	Channel         string    `json:"channel" gorm:"column:channel;size:64"`
-	CategoryL1      string    `json:"category_l1" gorm:"column:category_l1;size:64"`
-	CategoryL2      string    `json:"category_l2" gorm:"column:category_l2;size:64"`
-	CategoryL3      string    `json:"category_l3" gorm:"column:category_l3;size:64"`
-	Content         string    `json:"content" gorm:"column:content;type:text"`
-	SpecialTags     JSONRaw   `json:"special_tags" gorm:"column:special_tags;type:json"`
-	CurrentUnitID     *uint     `json:"current_unit_id" gorm:"column:current_unit_id"`
-	CurrentUnitObj    *Unit     `json:"current_unit,omitempty" gorm:"foreignKey:CurrentUnitID"`
-	HandlerUserID     *uint     `json:"handler_user_id" gorm:"column:handler_user_id"`
-	HandlerUnitID     *uint     `json:"handler_unit_id" gorm:"column:handler_unit_id"`
-	CurrentStatus     string    `json:"current_status" gorm:"column:current_status;size:64"`
-	CurrentOperator   string    `json:"current_operator" gorm:"column:current_operator;size:64"`
-	DeadlineAt    *time.Time `json:"deadline_at" gorm:"column:deadline_at"`
-	CreatedAt     *time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt     *time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
+	ID              uint        `json:"id" gorm:"primaryKey;autoIncrement"`
+	LetterNo        string      `json:"letter_no" gorm:"column:letter_no;uniqueIndex;size:64;not null"`
+	CitizenName     string      `json:"citizen_name" gorm:"column:citizen_name;size:64"`
+	Phone           string      `json:"phone" gorm:"column:phone;size:32"`
+	IDCard          string      `json:"id_card" gorm:"column:id_card;size:32"`
+	ReceivedAt      time.Time   `json:"received_at" gorm:"column:received_at"`
+	Channel         ChannelCode `json:"channel" gorm:"column:channel;type:tinyint"`
+	CategoryID      *uint       `json:"category_id" gorm:"column:category_id"`
+	Category        *Category   `json:"category,omitempty" gorm:"foreignKey:CategoryID"`
+	Content         string      `json:"content" gorm:"column:content;type:text"`
+	SpecialTags     JSONRaw     `json:"special_tags" gorm:"column:special_tags;type:json"`
+	CurrentUnitID   *uint       `json:"current_unit_id" gorm:"column:current_unit_id"`
+	CurrentUnitObj  *Unit       `json:"current_unit,omitempty" gorm:"foreignKey:CurrentUnitID"`
+	HandlerUserID   *uint       `json:"handler_user_id" gorm:"column:handler_user_id"`
+	HandlerUnitID   *uint       `json:"handler_unit_id" gorm:"column:handler_unit_id"`
+	CurrentStatus   StatusCode  `json:"current_status" gorm:"column:current_status;type:tinyint"`
+	CurrentOperator string      `json:"current_operator" gorm:"column:current_operator;size:64"`
+	DeadlineAt      *time.Time  `json:"deadline_at" gorm:"column:deadline_at"`
+	CreatedAt       *time.Time  `json:"created_at" gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt       *time.Time  `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
 }
 
 func (Letter) TableName() string { return "letters" }
 
-// LetterFlow represents the letter_flows table
-type LetterFlow struct {
-	ID          uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	LetterNo    string    `json:"letter_no" gorm:"column:letter_no;index;size:64;not null"`
-	FlowRecords JSONRaw   `json:"flow_records" gorm:"column:flow_records;type:json"`
-	CreatedAt   *time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt   *time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
+// GetChannelName returns the Chinese name for the channel code
+func (l Letter) GetChannelName() string {
+	if name, ok := ChannelToName[l.Channel]; ok {
+		return name
+	}
+	return ""
 }
 
-func (LetterFlow) TableName() string { return "letter_flows" }
+// GetStatusName returns the Chinese name for the status code
+func (l Letter) GetStatusName() string {
+	if name, ok := StatusCodeToName[l.CurrentStatus]; ok {
+		return name
+	}
+	return ""
+}
 
 // LetterAttachment represents the letter_attachments table
 type LetterAttachment struct {
@@ -78,41 +82,83 @@ type Category struct {
 
 func (Category) TableName() string { return "categories" }
 
-// DispatchPermission represents the dispatch_permissions table
-type DispatchPermission struct {
-	ID            uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	UnitID        *uint     `json:"unit_id" gorm:"column:unit_id"`
-	UnitName      string    `json:"-" gorm:"column:unit_name;uniqueIndex;size:128;not null"`
-	DispatchScope JSONRaw   `json:"dispatch_scope" gorm:"column:dispatch_scope;type:json"`
-	CreatedAt     time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt     time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
-}
-
-func (DispatchPermission) TableName() string { return "dispatch_permissions" }
-
-// Prompt represents the prompts table
-type Prompt struct {
-	ID         uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	PromptType string    `json:"prompt_type" gorm:"column:prompt_type;size:64;not null"`
-	Content    string    `json:"content" gorm:"column:content;type:text"`
-	CreatedAt  time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt  time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
-}
-
-func (Prompt) TableName() string { return "prompts" }
-
-// SpecialFocus represents the special_focuses table
-type SpecialFocus struct {
+// LetterFlow represents the letter_flows table
+type LetterFlow struct {
 	ID          uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	TagName     string    `json:"tag_name" gorm:"column:tag_name;size:64;not null"`
-	Description string    `json:"description" gorm:"column:description;type:text"`
+	LetterNo    string    `json:"letter_no" gorm:"column:letter_no;uniqueIndex;size:64;not null"`
+	FlowRecords JSONRaw   `json:"flow_records" gorm:"column:flow_records;type:json"`
 	CreatedAt   time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt   time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
 }
 
+func (LetterFlow) TableName() string { return "letter_flows" }
+
+// SpecialFocus 专项关注
+type SpecialFocus struct {
+	ID        uint      `json:"id" gorm:"primaryKey;autoIncrement"`
+	Name      string    `json:"name" gorm:"column:name;size:128;not null"`
+	Keywords  JSONRaw   `json:"keywords" gorm:"column:keywords;type:json"`
+	CreatedAt time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
+}
+
 func (SpecialFocus) TableName() string { return "special_focuses" }
 
-// Letter status constants
+// ──── Channel Code Mapping ────
+
+type ChannelCode int
+
+const (
+	ChannelCitizenReport ChannelCode = 1 // 市民上报
+	ChannelDirectorMail  ChannelCode = 2 // 局长信箱
+	ChannelVisit         ChannelCode = 3 // 来访
+	ChannelPhone         ChannelCode = 4 // 电话
+	ChannelMail          ChannelCode = 5 // 信件
+	ChannelWeb           ChannelCode = 6 // 网络
+	ChannelOther         ChannelCode = 7 // 其他
+)
+
+var ChannelToName = map[ChannelCode]string{
+	ChannelCitizenReport: "市民上报",
+	ChannelDirectorMail:  "局长信箱",
+	ChannelVisit:         "来访",
+	ChannelPhone:         "电话",
+	ChannelMail:          "信件",
+	ChannelWeb:           "网络",
+	ChannelOther:         "其他",
+}
+
+var ChannelNameToCode = map[string]ChannelCode{
+	"市民上报": ChannelCitizenReport,
+	"局长信箱": ChannelDirectorMail,
+	"来访":   ChannelVisit,
+	"电话":   ChannelPhone,
+	"信件":   ChannelMail,
+	"网络":   ChannelWeb,
+	"其他":   ChannelOther,
+}
+
+// ──── Status Code Mapping ────
+
+type StatusCode int
+
+const (
+	StatusCodePreProcess           StatusCode = 1
+	StatusCodePendingDisDispatch   StatusCode = 2
+	StatusCodeCityDispatched       StatusCode = 3
+	StatusCodeCityDirectDispatch   StatusCode = 4
+	StatusCodeDispatched           StatusCode = 5
+	StatusCodeProcessing           StatusCode = 6
+	StatusCodePendingVerification  StatusCode = 7
+	StatusCodePendingDistrictAudit StatusCode = 8
+	StatusCodePendingCityAudit     StatusCode = 9
+	StatusCodeDone                 StatusCode = 10
+	StatusCodeInvalid              StatusCode = 11
+	StatusCodeReturned             StatusCode = 12
+	StatusCodeExtended             StatusCode = 13
+)
+
+// Letter status string constants (kept for backward compat with service layer)
 const (
 	StatusPreProcess           = "预处理"
 	StatusPendingDistrictDispatch = "待区县局下发"
@@ -128,3 +174,40 @@ const (
 	StatusReturned             = "已退回"
 	StatusExtended             = "已延期"
 )
+
+var StatusCodeToName = map[StatusCode]string{
+	StatusCodePreProcess:           StatusPreProcess,
+	StatusCodePendingDisDispatch:   StatusPendingDistrictDispatch,
+	StatusCodeCityDispatched:       StatusCityDispatched,
+	StatusCodeCityDirectDispatch:   StatusCityDirectDispatch,
+	StatusCodeDispatched:           StatusDispatched,
+	StatusCodeProcessing:           StatusProcessing,
+	StatusCodePendingVerification:  StatusPendingVerification,
+	StatusCodePendingDistrictAudit: StatusPendingDistrictAudit,
+	StatusCodePendingCityAudit:     StatusPendingCityAudit,
+	StatusCodeDone:                 StatusDone,
+	StatusCodeInvalid:              StatusInvalid,
+	StatusCodeReturned:             StatusReturned,
+	StatusCodeExtended:             StatusExtended,
+}
+
+var StatusNameToCode = map[string]StatusCode{
+	StatusPreProcess:              StatusCodePreProcess,
+	StatusPendingDistrictDispatch: StatusCodePendingDisDispatch,
+	StatusCityDispatched:          StatusCodeCityDispatched,
+	StatusCityDirectDispatch:      StatusCodeCityDirectDispatch,
+	StatusDispatched:              StatusCodeDispatched,
+	StatusProcessing:              StatusCodeProcessing,
+	StatusPendingVerification:     StatusCodePendingVerification,
+	StatusPendingDistrictAudit:    StatusCodePendingDistrictAudit,
+	StatusPendingCityAudit:        StatusCodePendingCityAudit,
+	StatusDone:                    StatusCodeDone,
+	StatusInvalid:                 StatusCodeInvalid,
+	StatusReturned:                StatusCodeReturned,
+	StatusExtended:                StatusCodeExtended,
+}
+
+var LegacyStatusToCode = map[string]StatusCode{
+	"待受理":         StatusCodePreProcess,
+	"市局下发至区县局/支队": StatusCodeCityDispatched,
+}

@@ -2,6 +2,7 @@ package dao
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"letter-manage-backend/model"
@@ -11,9 +12,7 @@ import (
 
 type LetterFilter struct {
 	Status        string
-	CategoryL1    string
-	CategoryL2    string
-	CategoryL3    string
+	CategoryID    *uint
 	Keyword       string
 	LetterNo      string
 	CitizenName   string
@@ -58,16 +57,12 @@ func UnitNameToIDs(unitName string) []uint {
 func buildLetterQuery(filter LetterFilter) *gorm.DB {
 	query := DB.Model(&model.Letter{})
 	if filter.Status != "" {
-		query = query.Where("current_status = ?", filter.Status)
+		if code, ok := model.StatusNameToCode[filter.Status]; ok {
+			query = query.Where("current_status = ?", code)
+		}
 	}
-	if filter.CategoryL1 != "" {
-		query = query.Where("category_l1 = ?", filter.CategoryL1)
-	}
-	if filter.CategoryL2 != "" {
-		query = query.Where("category_l2 = ?", filter.CategoryL2)
-	}
-	if filter.CategoryL3 != "" {
-		query = query.Where("category_l3 = ?", filter.CategoryL3)
+	if filter.CategoryID != nil {
+		query = query.Where("category_id = ?", *filter.CategoryID)
 	}
 	if filter.Keyword != "" {
 		like := "%" + filter.Keyword + "%"
@@ -226,8 +221,12 @@ func UpdateLetterOperator(letterNo, operator string) error {
 }
 
 func UpdateLetterStatus(letterNo, status string, unitID ...*uint) error {
+	code, ok := model.StatusNameToCode[status]
+	if !ok {
+		return gorm.ErrRecordNotFound
+	}
 	updates := map[string]interface{}{
-		"current_status": status,
+		"current_status": code,
 	}
 	if len(unitID) > 0 && unitID[0] != nil {
 		updates["current_unit_id"] = *unitID[0]
@@ -295,12 +294,19 @@ func UpsertAttachment(att *model.LetterAttachment) error {
 	var existing model.LetterAttachment
 	err := DB.Where("letter_no = ?", att.LetterNo).First(&existing).Error
 	if err == gorm.ErrRecordNotFound {
+		att.CreatedAt = time.Now()
+		att.UpdatedAt = time.Now()
 		return DB.Create(att).Error
 	} else if err != nil {
 		return err
 	}
 	att.ID = existing.ID
-	att.CreatedAt = existing.CreatedAt
+	if !existing.CreatedAt.IsZero() {
+		att.CreatedAt = existing.CreatedAt
+	} else {
+		att.CreatedAt = time.Now()
+	}
+	att.UpdatedAt = time.Now()
 	return DB.Save(att).Error
 }
 
@@ -319,8 +325,8 @@ func CreateFeedback(fb *model.Feedback) error {
 // Statistics
 
 type StatusCount struct {
-	Status string `json:"status"`
-	Count  int64  `json:"count"`
+	Status model.StatusCode `json:"status"`
+	Count  int64            `json:"count"`
 }
 
 func GetLetterStatusStats(startTime, endTime *time.Time, unitNames []string, handlerUserID ...uint) ([]StatusCount, error) {
@@ -348,8 +354,8 @@ func GetLetterStatusStats(startTime, endTime *time.Time, unitNames []string, han
 }
 
 type ChannelCount struct {
-	Channel string `json:"channel"`
-	Count   int64  `json:"count"`
+	Channel model.ChannelCode `json:"channel"`
+	Count   int64             `json:"count"`
 }
 
 func GetLetterChannelStats(unitNames []string, handlerUserID ...uint) ([]ChannelCount, error) {
@@ -403,8 +409,9 @@ type CategoryCount struct {
 func GetLetterCategoryStats(startTime, endTime *time.Time, unitNames []string, handlerUserID ...uint) ([]CategoryCount, error) {
 	var results []CategoryCount
 	query := DB.Model(&model.Letter{}).
-		Select("category_l1 as category, count(*) as count").
-		Where("category_l1 != ''")
+		Select("categories.level1 as category, count(*) as count").
+		Joins("LEFT JOIN categories ON categories.id = letters.category_id").
+		Where("categories.level1 != ''")
 	if startTime != nil {
 		query = query.Where("received_at >= ?", startTime)
 	}
@@ -420,7 +427,7 @@ func GetLetterCategoryStats(startTime, endTime *time.Time, unitNames []string, h
 	if len(handlerUserID) > 0 && handlerUserID[0] > 0 {
 		query = query.Where("handler_user_id = ?", handlerUserID[0])
 	}
-	err := query.Group("category_l1").
+	err := query.Group("categories.level1").
 		Order("count DESC").
 		Limit(10).
 		Scan(&results).Error
@@ -439,7 +446,7 @@ func GetLetterStatusStatsByUnitIDs(startTime, endTime *time.Time, unitIDs []uint
 		query = query.Where("received_at <= ?", endTime)
 	}
 	if len(unitIDs) > 0 {
-		query = query.Where("handler_unit_id IN ?", unitIDs)
+		query = query.Where("(handler_unit_id IN ? OR current_unit_id IN ?)", unitIDs, unitIDs)
 	}
 	if len(handlerUserID) > 0 && handlerUserID[0] > 0 {
 		query = query.Where("handler_user_id = ?", handlerUserID[0])
@@ -454,7 +461,7 @@ func GetLetterChannelStatsByUnitIDs(unitIDs []uint, handlerUserID ...uint) ([]Ch
 	query := DB.Model(&model.Letter{}).
 		Select("channel, count(*) as count")
 	if len(unitIDs) > 0 {
-		query = query.Where("handler_unit_id IN ?", unitIDs)
+		query = query.Where("(handler_unit_id IN ? OR current_unit_id IN ?)", unitIDs, unitIDs)
 	}
 	if len(handlerUserID) > 0 && handlerUserID[0] > 0 {
 		query = query.Where("handler_user_id = ?", handlerUserID[0])
@@ -469,7 +476,7 @@ func GetLetterMonthStatsByUnitIDs(unitIDs []uint, handlerUserID ...uint) ([]Mont
 	query := DB.Model(&model.Letter{}).
 		Select("DATE_FORMAT(received_at, '%Y-%m') as month, count(*) as count")
 	if len(unitIDs) > 0 {
-		query = query.Where("handler_unit_id IN ?", unitIDs)
+		query = query.Where("(handler_unit_id IN ? OR current_unit_id IN ?)", unitIDs, unitIDs)
 	}
 	if len(handlerUserID) > 0 && handlerUserID[0] > 0 {
 		query = query.Where("handler_user_id = ?", handlerUserID[0])
@@ -481,11 +488,33 @@ func GetLetterMonthStatsByUnitIDs(unitIDs []uint, handlerUserID ...uint) ([]Mont
 	return results, err
 }
 
-func GetLetterCategoryStatsByUnitIDs(startTime, endTime *time.Time, unitIDs []uint, handlerUserID ...uint) ([]CategoryCount, error) {
-	var results []CategoryCount
+// TrendPoint 趋势图数据点
+type TrendPoint struct {
+	Label string `json:"label"`
+	Count int64  `json:"count"`
+}
+
+// GetLetterTrend 按指定粒度返回趋势数据
+// granularity: "hour", "day", "weekday", "month"
+// startTime/endTime 为 nil 时不过滤时间
+func GetLetterTrend(unitIDs []uint, handlerUserID uint, granularity string, startTime, endTime *time.Time) ([]TrendPoint, error) {
+	var format string
+	switch granularity {
+	case "hour":
+		format = "%H:00"
+	case "day":
+		format = "%m-%d"
+	case "weekday":
+		format = "%w"
+	case "month":
+		format = "%Y-%m"
+	default:
+		format = "%Y-%m"
+	}
+
+	var results []TrendPoint
 	query := DB.Model(&model.Letter{}).
-		Select("category_l1 as category, count(*) as count").
-		Where("category_l1 != ''")
+		Select(fmt.Sprintf("DATE_FORMAT(received_at, '%s') as label, count(*) as count", format))
 	if startTime != nil {
 		query = query.Where("received_at >= ?", startTime)
 	}
@@ -493,12 +522,34 @@ func GetLetterCategoryStatsByUnitIDs(startTime, endTime *time.Time, unitIDs []ui
 		query = query.Where("received_at <= ?", endTime)
 	}
 	if len(unitIDs) > 0 {
-		query = query.Where("handler_unit_id IN ?", unitIDs)
+		query = query.Where("(handler_unit_id IN ? OR current_unit_id IN ?)", unitIDs, unitIDs)
+	}
+	if handlerUserID > 0 {
+		query = query.Where("handler_user_id = ?", handlerUserID)
+	}
+	err := query.Group("label").Order("label ASC").Scan(&results).Error
+	return results, err
+}
+
+func GetLetterCategoryStatsByUnitIDs(startTime, endTime *time.Time, unitIDs []uint, handlerUserID ...uint) ([]CategoryCount, error) {
+	var results []CategoryCount
+	query := DB.Model(&model.Letter{}).
+		Select("categories.level1 as category, count(*) as count").
+		Joins("LEFT JOIN categories ON categories.id = letters.category_id").
+		Where("categories.level1 != ''")
+	if startTime != nil {
+		query = query.Where("received_at >= ?", startTime)
+	}
+	if endTime != nil {
+		query = query.Where("received_at <= ?", endTime)
+	}
+	if len(unitIDs) > 0 {
+		query = query.Where("(handler_unit_id IN ? OR current_unit_id IN ?)", unitIDs, unitIDs)
 	}
 	if len(handlerUserID) > 0 && handlerUserID[0] > 0 {
 		query = query.Where("handler_user_id = ?", handlerUserID[0])
 	}
-	err := query.Group("category_l1").
+	err := query.Group("categories.level1").
 		Order("count DESC").
 		Limit(10).
 		Scan(&results).Error
@@ -524,7 +575,7 @@ func GetDispatchList(unitID *uint, permLevel string, page, pageSize int) ([]mode
 	query := DB.Model(&model.Letter{})
 	switch permLevel {
 	case "CITY":
-		query = query.Where("current_status = ?", model.StatusPreProcess)
+		query = query.Where("current_status = ?", model.StatusCodePreProcess)
 	case "DISTRICT":
 		// 区县局：显示市局下发至本单位及下属单位的信件，待进一步下发
 		var unitIDs []uint
@@ -538,7 +589,7 @@ func GetDispatchList(unitID *uint, permLevel string, page, pageSize int) ([]mode
 			query = query.Where(
 				"current_unit_id IN ? AND current_status IN ?",
 				unitIDs,
-				[]string{model.StatusPendingDistrictDispatch, model.StatusCityDispatched},
+				[]model.StatusCode{model.StatusCodePendingDisDispatch, model.StatusCodeCityDispatched},
 			)
 		} else {
 			query = query.Where("1 = 0")
@@ -571,7 +622,7 @@ func GetProcessingList(unitID *uint, permLevel string, page, pageSize int, handl
 	if permLevel == "CITY" {
 		query = query.Where(
 			"current_status IN ?",
-			[]string{model.StatusProcessing, model.StatusPendingDistrictAudit, model.StatusPendingCityAudit},
+			[]model.StatusCode{model.StatusCodeProcessing, model.StatusCodePendingDistrictAudit, model.StatusCodePendingCityAudit},
 		)
 	} else if permLevel == "DISTRICT" {
 		// 区县局：handler_unit_id 过滤本单位及下属单位的信件
@@ -586,7 +637,7 @@ func GetProcessingList(unitID *uint, permLevel string, page, pageSize int, handl
 			query = query.Where(
 				"handler_unit_id IN ? AND current_status IN ?",
 				unitIDs,
-				[]string{model.StatusProcessing, model.StatusCityDirectDispatch, model.StatusPendingDistrictAudit, model.StatusDispatched},
+				[]model.StatusCode{model.StatusCodeProcessing, model.StatusCodeCityDirectDispatch, model.StatusCodePendingDistrictAudit, model.StatusCodeDispatched},
 			)
 		} else {
 			query = query.Where("1 = 0")
@@ -601,7 +652,7 @@ func GetProcessingList(unitID *uint, permLevel string, page, pageSize int, handl
 				query = query.Where(
 					"current_unit_id = ? AND current_status IN ?",
 					*userPolice.UnitID,
-					[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch},
+					[]model.StatusCode{model.StatusCodeDispatched, model.StatusCodeProcessing, model.StatusCodeCityDirectDispatch},
 				)
 			} else {
 				// 兜底：unitID 为空，返回空结果
@@ -610,7 +661,7 @@ func GetProcessingList(unitID *uint, permLevel string, page, pageSize int, handl
 					query = query.Where(
 						"current_unit_id IN ? AND current_status IN ?",
 						unitIDs,
-						[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch},
+						[]model.StatusCode{model.StatusCodeDispatched, model.StatusCodeProcessing, model.StatusCodeCityDirectDispatch},
 					)
 				} else {
 					query = query.Where("1 = 0")
@@ -622,7 +673,7 @@ func GetProcessingList(unitID *uint, permLevel string, page, pageSize int, handl
 				query = query.Where(
 					"current_unit_id = ? AND current_status IN ?",
 					*unitID,
-					[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch},
+					[]model.StatusCode{model.StatusCodeDispatched, model.StatusCodeProcessing, model.StatusCodeCityDirectDispatch},
 				)
 			} else {
 				query = query.Where("1 = 0")
@@ -662,7 +713,7 @@ func GetProcessingListByUnitID(unitID uint, permLevel string, page, pageSize int
 	if permLevel == "CITY" {
 		query = query.Where(
 			"current_status IN ?",
-			[]string{model.StatusProcessing, model.StatusPendingDistrictAudit, model.StatusPendingCityAudit},
+			[]model.StatusCode{model.StatusCodeProcessing, model.StatusCodePendingDistrictAudit, model.StatusCodePendingCityAudit},
 		)
 	} else if permLevel == "DISTRICT" {
 		// 区县局：可见本单位及下属单位的待处理信件（不含尚未下发的已下发状态）
@@ -671,13 +722,13 @@ func GetProcessingListByUnitID(unitID uint, permLevel string, page, pageSize int
 			query = query.Where(
 				"current_unit_id IN ? AND current_status IN ?",
 				subUnitIDs,
-				[]string{model.StatusProcessing, model.StatusCityDirectDispatch, model.StatusPendingDistrictAudit},
+				[]model.StatusCode{model.StatusCodeProcessing, model.StatusCodeCityDirectDispatch, model.StatusCodePendingDistrictAudit},
 			)
 		} else {
 			query = query.Where(
 				"current_unit_id = ? AND current_status IN ?",
 				unitID,
-				[]string{model.StatusProcessing, model.StatusCityDirectDispatch, model.StatusPendingDistrictAudit},
+				[]model.StatusCode{model.StatusCodeProcessing, model.StatusCodeCityDirectDispatch, model.StatusCodePendingDistrictAudit},
 			)
 		}
 	} else {
@@ -685,7 +736,7 @@ func GetProcessingListByUnitID(unitID uint, permLevel string, page, pageSize int
 		query = query.Where(
 			"current_unit_id = ? AND current_status IN ?",
 			unitID,
-			[]string{model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch},
+			[]model.StatusCode{model.StatusCodeDispatched, model.StatusCodeProcessing, model.StatusCodeCityDirectDispatch},
 		)
 	}
 	var total int64
@@ -708,8 +759,8 @@ func GetAuditList(unitID *uint, permLevel string, page, pageSize int) ([]model.L
 	query := DB.Model(&model.Letter{})
 	switch permLevel {
 	case "CITY":
-		// 市局：查看"待核查" + 分县局已审核的信件
-		query = query.Where("current_status IN ?", []string{model.StatusPendingVerification, model.StatusPendingCityAudit, model.StatusPendingDistrictAudit})
+		// 市局：只查看分局已审核上报的（待市局审核 + 待分县局/支队审核），不包含待核查
+		query = query.Where("current_status IN ?", []model.StatusCode{model.StatusCodePendingCityAudit, model.StatusCodePendingDistrictAudit})
 	case "DISTRICT":
 		// 分县局：查看下发至本单位的待核查信件 + 本单位科室已反馈的信件
 		var unitIDs []uint
@@ -722,8 +773,8 @@ func GetAuditList(unitID *uint, permLevel string, page, pageSize int) ([]model.L
 		if len(unitIDs) > 0 {
 			query = query.Where(
 				"(current_status = ? AND current_unit_id IN ?) OR (current_status = ? AND current_unit_id IN ?)",
-				model.StatusPendingVerification, unitIDs,
-				model.StatusPendingDistrictAudit, unitIDs,
+				model.StatusCodePendingVerification, unitIDs,
+				model.StatusCodePendingDistrictAudit, unitIDs,
 			)
 		} else {
 			query = query.Where("1 = 0")
@@ -752,14 +803,14 @@ func GetAuditListByUnitID(unitID uint, permLevel string, page, pageSize int) ([]
 	query := DB.Model(&model.Letter{})
 	switch permLevel {
 	case "CITY":
-		// 市局：查看"待核查" + 分县局已审核的信件
-		query = query.Where("current_status IN ?", []string{model.StatusPendingVerification, model.StatusPendingCityAudit, model.StatusPendingDistrictAudit})
+		// 市局：只查看分局已审核上报的（待市局审核 + 待分县局/支队审核），不包含待核查
+		query = query.Where("current_status IN ?", []model.StatusCode{model.StatusCodePendingCityAudit, model.StatusCodePendingDistrictAudit})
 	case "DISTRICT":
 		// 分县局：查看下发至本单位的待核查信件 + 本单位科室已反馈的信件
 		query = query.Where(
 			"(current_status = ? AND current_unit_id = ?) OR (current_status = ? AND current_unit_id = ?)",
-			model.StatusPendingVerification, unitID,
-			model.StatusPendingDistrictAudit, unitID,
+			model.StatusCodePendingVerification, unitID,
+			model.StatusCodePendingDistrictAudit, unitID,
 		)
 	default:
 		query = query.Where("1 = 0")

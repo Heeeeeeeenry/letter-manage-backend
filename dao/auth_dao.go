@@ -54,6 +54,28 @@ func GetUnitNameByID(unitID *uint) string {
 	return unit.Level1
 }
 
+// GetUnitFullNameByID 返回完整三级单位路径，如 "分局 / 桃城分局 / 民意智感中心"
+func GetUnitFullNameByID(unitID *uint) string {
+	if unitID == nil {
+		return ""
+	}
+	var unit model.Unit
+	if err := DB.First(&unit, *unitID).Error; err != nil {
+		return ""
+	}
+	var parts []string
+	if unit.Level1 != "" {
+		parts = append(parts, unit.Level1)
+	}
+	if unit.Level2 != "" {
+		parts = append(parts, unit.Level2)
+	}
+	if unit.Level3 != "" {
+		parts = append(parts, unit.Level3)
+	}
+	return strings.Join(parts, " / ")
+}
+
 // HasDispatchLevelUsersInUnit 检查目标单位是否存在 CITY 或 DISTRICT 级别的用户
 func HasDispatchLevelUsersInUnit(unitID uint) bool {
 	var count int64
@@ -106,7 +128,7 @@ func DeleteUser(id uint) error {
 	return DB.Delete(&model.PoliceUser{}, id).Error
 }
 
-func GetUserList(page, pageSize int, unitFilter string, permLevel string, isAdmin bool, unitID ...*uint) ([]model.PoliceUser, int64, error) {
+func GetUserList(page, pageSize int, unitFilter string, permLevel string, isAdmin bool, currentUserID uint, unitID ...*uint) ([]model.PoliceUser, int64, error) {
 	var users []model.PoliceUser
 	var total int64
 	offset := (page - 1) * pageSize
@@ -116,40 +138,38 @@ func GetUserList(page, pageSize int, unitFilter string, permLevel string, isAdmi
 		if isAdmin {
 			// CITY admin：可见所有用户（不过滤）
 		} else {
-			// CITY 非admin：仅可见 CITY admin + DISTRICT + OFFICER
-			query = query.Where("(permission_level = 'CITY' AND is_admin = true) OR permission_level IN ('DISTRICT', 'OFFICER')")
+			// CITY 非admin：可见 CITY admin + DISTRICT + OFFICER + 自己
+			query = query.Where("(permission_level = 'CITY' AND is_admin = true) OR permission_level IN ('DISTRICT', 'OFFICER') OR id = ?", currentUserID)
 		}
-	} else if unitFilter != "" && permLevel == "DISTRICT" {
+	} else if permLevel == "DISTRICT" {
 		// 区县局：看到本单位本级用户 + 下属科所队用户，但排除 CITY 级别用户
-		subUnits := GetSubordinateUnitNames(unitFilter)
-		if len(subUnits) > 0 {
-			if len(unitID) > 0 && unitID[0] != nil {
+		if len(unitID) > 0 && unitID[0] != nil {
+			subUnitIDs := GetSubordinateUnitIDs(*unitID[0])
+			if len(subUnitIDs) > 0 {
 				query = query.Where(
-					"((unit_name = ? OR unit_id = ?) OR (unit_name IN ? AND permission_level != 'CITY'))",
-					unitFilter, *unitID[0], subUnits,
+					"(unit_id = ? OR (unit_id IN ? AND permission_level != 'CITY'))",
+					*unitID[0], subUnitIDs,
 				)
 			} else {
-				query = query.Where(
-					"(unit_name = ?) OR (unit_name IN ? AND permission_level != 'CITY')",
-					unitFilter, subUnits,
-				)
+				query = query.Where("unit_id = ?", *unitID[0])
 			}
 		} else {
-			if len(unitID) > 0 && unitID[0] != nil {
-				query = query.Where("(unit_name = ? OR unit_id = ?)", unitFilter, *unitID[0])
-			} else {
-				query = query.Where("unit_name = ?", unitFilter)
-			}
+			// 无 unitID 兜底：返回空
+			query = query.Where("1 = 0")
 		}
 		// DISTRICT 非admin：不可见同级（DISTRICT）非admin用户
 		if !isAdmin {
 			query = query.Where("(permission_level != 'DISTRICT' OR is_admin = true)")
 		}
-	} else if unitFilter != "" {
+	} else if permLevel == "OFFICER" {
+		// OFFICER 没有用户管理权限，该路径不应到达（由 controller 拦截）
+		query = query.Where("1 = 0")
+	} else {
+		// 非 CITY/DISTRICT：只看到本单位
 		if len(unitID) > 0 && unitID[0] != nil {
-			query = query.Where("(unit_name = ? OR unit_id = ?)", unitFilter, *unitID[0])
+			query = query.Where("unit_id = ?", *unitID[0])
 		} else {
-			query = query.Where("unit_name = ?", unitFilter)
+			query = query.Where("1 = 0")
 		}
 	}
 	if err := query.Count(&total).Error; err != nil {

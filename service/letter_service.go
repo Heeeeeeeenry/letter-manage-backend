@@ -23,14 +23,9 @@ func GetLetterList(args map[string]interface{}, user *model.PoliceUser) (map[str
 	if v, ok := args["status"].(string); ok {
 		filter.Status = v
 	}
-	if v, ok := args["category_l1"].(string); ok {
-		filter.CategoryL1 = v
-	}
-	if v, ok := args["category_l2"].(string); ok {
-		filter.CategoryL2 = v
-	}
-	if v, ok := args["category_l3"].(string); ok {
-		filter.CategoryL3 = v
+	if v, ok := args["category_id"].(float64); ok && v > 0 {
+		cid := uint(v)
+		filter.CategoryID = &cid
 	}
 	if v, ok := args["keyword"].(string); ok {
 		filter.Keyword = v
@@ -347,16 +342,11 @@ func CreateLetter(args map[string]interface{}) (*model.Letter, error) {
 		letter.IDCard = v
 	}
 	if v, ok := args["channel"].(string); ok {
-		letter.Channel = v
+		letter.Channel = model.ChannelNameToCode[v]
 	}
-	if v, ok := args["category_l1"].(string); ok {
-		letter.CategoryL1 = v
-	}
-	if v, ok := args["category_l2"].(string); ok {
-		letter.CategoryL2 = v
-	}
-	if v, ok := args["category_l3"].(string); ok {
-		letter.CategoryL3 = v
+	if v, ok := args["category_id"].(float64); ok {
+		catID := uint(v)
+		letter.CategoryID = &catID
 	}
 	if v, ok := args["content"].(string); ok {
 		letter.Content = v
@@ -370,7 +360,7 @@ func CreateLetter(args map[string]interface{}) (*model.Letter, error) {
 			letter.CurrentUnitObj = unit
 		}
 	}
-	letter.CurrentStatus = model.StatusPreProcess
+	letter.CurrentStatus = model.StatusCodePreProcess
 	if v, ok := args["received_at"].(string); ok && v != "" {
 		t, err := time.ParseInLocation("2006-01-02", v, time.Local)
 		if err == nil {
@@ -418,16 +408,11 @@ func UpdateLetter(args map[string]interface{}) error {
 		letter.IDCard = v
 	}
 	if v, ok := args["channel"].(string); ok {
-		letter.Channel = v
+		letter.Channel = model.ChannelNameToCode[v]
 	}
-	if v, ok := args["category_l1"].(string); ok {
-		letter.CategoryL1 = v
-	}
-	if v, ok := args["category_l2"].(string); ok {
-		letter.CategoryL2 = v
-	}
-	if v, ok := args["category_l3"].(string); ok {
-		letter.CategoryL3 = v
+	if v, ok := args["category_id"].(float64); ok {
+		catID := uint(v)
+		letter.CategoryID = &catID
 	}
 	if v, ok := args["content"].(string); ok {
 		letter.Content = v
@@ -442,7 +427,7 @@ func UpdateLetter(args map[string]interface{}) error {
 		}
 	}
 	if v, ok := args["current_status"].(string); ok {
-		letter.CurrentStatus = v
+		letter.CurrentStatus = model.StatusNameToCode[v]
 	}
 	if v, ok := args["received_at"].(string); ok && v != "" {
 		t, err := time.ParseInLocation("2006-01-02", v, time.Local)
@@ -488,7 +473,7 @@ func UpdateLetterStatus(args map[string]interface{}, operator *model.PoliceUser)
 		"remark":        remark,
 		"operator":      operator.Name,
 		"operator_id":   operator.PoliceNumber,
-		"operator_unit": dao.GetUnitNameByID(operator.UnitID),
+		"operator_unit": dao.GetUnitFullNameByID(operator.UnitID),
 		"timestamp":     time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, flowRecord)
@@ -634,7 +619,7 @@ func DispatchLetter(args map[string]interface{}, operator *model.PoliceUser) err
 		"remark":         remark,
 		"operator":       operator.Name,
 		"operator_id":    operator.PoliceNumber,
-		"operator_unit":  dao.GetUnitNameByID(operator.UnitID),
+		"operator_unit":  dao.GetUnitFullNameByID(operator.UnitID),
 		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
 	if err := appendFlowRecord(letterNo, record); err != nil {
@@ -673,7 +658,7 @@ func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string, args
 					perm, err := dao.GetDispatchPermissionByUnitID(*operator.UnitID)
 					if err == nil && perm != nil {
 						var scope []uint
-						if err := json.Unmarshal([]byte(perm.DispatchScope), &scope); err == nil {
+						if err := json.Unmarshal([]byte(perm.CanDispatchTo), &scope); err == nil {
 							for _, s := range scope {
 								if s == uid {
 									return true, nil
@@ -748,7 +733,7 @@ func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string, args
 			perm, err := dao.GetDispatchPermissionByUnitID(*operator.UnitID)
 			if err == nil && perm != nil {
 				var scope []string
-				if err := json.Unmarshal([]byte(perm.DispatchScope), &scope); err == nil {
+				if err := json.Unmarshal([]byte(perm.CanDispatchTo), &scope); err == nil {
 					for _, s := range scope {
 						if s == targetUnit {
 							return true, nil
@@ -766,7 +751,7 @@ func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string, args
 			return false, nil
 		}
 		var scope []string
-		if err := json.Unmarshal([]byte(perm.DispatchScope), &scope); err != nil {
+		if err := json.Unmarshal([]byte(perm.CanDispatchTo), &scope); err != nil {
 			return false, nil
 		}
 		for _, s := range scope {
@@ -820,7 +805,7 @@ func MarkInvalid(args map[string]interface{}, operator *model.PoliceUser) error 
 		"to_unit":        getUnitNameFromID(targetUnitID),
 		"operator":       operator.Name,
 		"operator_id":    operator.PoliceNumber,
-		"operator_unit":  dao.GetUnitNameByID(operator.UnitID),
+		"operator_unit":  dao.GetUnitFullNameByID(operator.UnitID),
 		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, record)
@@ -916,7 +901,7 @@ func SubmitProcessing(args map[string]interface{}, operator *model.PoliceUser) e
 		"remark":         remark,
 		"operator":       operator.Name,
 		"operator_id":    operator.PoliceNumber,
-		"operator_unit":  dao.GetUnitNameByID(operator.UnitID),
+		"operator_unit":  dao.GetUnitFullNameByID(operator.UnitID),
 		"from_unit":      getUnitNameFromObj(letter.CurrentUnitObj),
 		"to_unit":        parentUnit,
 		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
@@ -943,11 +928,11 @@ func HandleBySelf(args map[string]interface{}, operator *model.PoliceUser) error
 	record := map[string]interface{}{
 		"action":         "handle_by_self",
 		"status":         model.StatusProcessing,
-		"unit":           dao.GetUnitNameByID(operator.UnitID),
+		"unit":           dao.GetUnitFullNameByID(operator.UnitID),
 		"remark":         remark,
 		"operator":       operator.Name,
 		"operator_id":    operator.PoliceNumber,
-		"operator_unit":  dao.GetUnitNameByID(operator.UnitID),
+		"operator_unit":  dao.GetUnitFullNameByID(operator.UnitID),
 		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, record)
@@ -1107,7 +1092,7 @@ func ReturnLetter(args map[string]interface{}, operator *model.PoliceUser) error
 		"remark":         remark,
 		"operator":       operator.Name,
 		"operator_id":    operator.PoliceNumber,
-		"operator_unit":  dao.GetUnitNameByID(operator.UnitID),
+		"operator_unit":  dao.GetUnitFullNameByID(operator.UnitID),
 		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
 	return appendFlowRecord(letterNo, record)
@@ -1230,7 +1215,7 @@ func AuditReject(args map[string]interface{}, operator *model.PoliceUser) error 
 		"remark":         remark,
 		"operator":       operator.Name,
 		"operator_id":    operator.PoliceNumber,
-		"operator_unit":  dao.GetUnitNameByID(operator.UnitID),
+		"operator_unit":  dao.GetUnitFullNameByID(operator.UnitID),
 		"from_unit":      getUnitNameFromObj(letter.CurrentUnitObj),
 		"to_unit":        processingUnit,
 		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
@@ -1239,7 +1224,7 @@ func AuditReject(args map[string]interface{}, operator *model.PoliceUser) error 
 }
 
 func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID uint, viewMode string) (map[string]interface{}, error) {
-	// 根据 period 计算时间范围
+	// 根据 period 计算滚动时间窗口
 	var startTime, endTime *time.Time
 	now := time.Now()
 	switch period {
@@ -1247,17 +1232,16 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 		t := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 		startTime = &t
 	case "week":
-		weekday := int(now.Weekday())
-		if weekday == 0 {
-			weekday = 7
-		}
-		t := time.Date(now.Year(), now.Month(), now.Day()-weekday+1, 0, 0, 0, 0, now.Location())
+		t := now.AddDate(0, 0, -6)
+		t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, now.Location())
 		startTime = &t
 	case "month":
-		t := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+		t := now.AddDate(0, 0, -29)
+		t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, now.Location())
 		startTime = &t
 	case "year":
-		t := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+		t := now.AddDate(0, 0, -364)
+		t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, now.Location())
 		startTime = &t
 	}
 	if startTime != nil {
@@ -1290,7 +1274,6 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 
 	var statusStats []dao.StatusCount
 	var channelStats []dao.ChannelCount
-	var monthStats []dao.MonthCount
 	var catStats []dao.CategoryCount
 	var err error
 
@@ -1315,10 +1298,13 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 	if err != nil {
 		return nil, err
 	}
+	// 趋势数据：根据 period 选择粒度
+	trendGranularity := periodToGranularity(period)
+	var trendPoints []dao.TrendPoint
 	if isPersonal && handlerUserID > 0 {
-		monthStats, err = dao.GetLetterMonthStatsByUnitIDs(unitIDs, handlerUserID)
+		trendPoints, err = dao.GetLetterTrend(unitIDs, handlerUserID, trendGranularity, startTime, endTime)
 	} else {
-		monthStats, err = dao.GetLetterMonthStatsByUnitIDs(unitIDs)
+		trendPoints, err = dao.GetLetterTrend(unitIDs, 0, trendGranularity, startTime, endTime)
 	}
 	if err != nil {
 		return nil, err
@@ -1334,17 +1320,33 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 
 	// 构建 summary 统计
 	var total int64
-	var preprocessCount, processingCount, doneCount int64
+	var preprocessCount, processingCount, doneCount, districtAuditCount int64
 	for _, s := range statusStats {
 		total += s.Count
 		switch s.Status {
-		case model.StatusPreProcess:
+		case model.StatusCodePreProcess:
 			preprocessCount = s.Count
-		case model.StatusDispatched, model.StatusProcessing, model.StatusCityDirectDispatch:
+		case model.StatusCodePendingVerification:
+			// 待核查：分局审核层面，市局不应计入
+			if permLevel == "CITY" {
+				processingCount += s.Count
+			} else {
+				districtAuditCount += s.Count
+			}
+		case model.StatusCodePendingDistrictAudit:
+			districtAuditCount += s.Count
+		case model.StatusCodePendingCityAudit:
+			// 待市局审核：只有市局可见
+			if permLevel == "CITY" {
+				districtAuditCount += s.Count
+			} else {
+				processingCount += s.Count
+			}
+		case model.StatusCodeDispatched, model.StatusCodeProcessing, model.StatusCodeCityDirectDispatch:
 			processingCount += s.Count
-		case model.StatusDone:
+		case model.StatusCodeDone:
 			doneCount = s.Count
-		case model.StatusInvalid:
+		case model.StatusCodeInvalid:
 			// skip
 		default:
 			processingCount += s.Count
@@ -1354,14 +1356,18 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 	// 构建状态分布数组
 	statusDistribution := []map[string]interface{}{}
 	for _, s := range statusStats {
-		if s.Status == model.StatusInvalid {
+		if s.Status == model.StatusCodeInvalid {
 			statusDistribution = append(statusDistribution, map[string]interface{}{
 				"name":  "已无效",
 				"value": s.Count,
 			})
 		} else {
+			name := model.StatusCodeToName[s.Status]
+			if name == "" {
+				name = fmt.Sprintf("%d", s.Status)
+			}
 			statusDistribution = append(statusDistribution, map[string]interface{}{
-				"name":  s.Status,
+				"name":  name,
 				"value": s.Count,
 			})
 		}
@@ -1370,9 +1376,9 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 	// 构建趋势数据
 	trendDates := []string{}
 	trendValues := []int64{}
-	for _, m := range monthStats {
-		trendDates = append(trendDates, m.Month)
-		trendValues = append(trendValues, m.Count)
+	for _, tp := range trendPoints {
+		trendDates = append(trendDates, tp.Label)
+		trendValues = append(trendValues, tp.Count)
 	}
 
 	// 构建分类统计
@@ -1386,8 +1392,12 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 	// 构建来源分布
 	sourceDistribution := []map[string]interface{}{}
 	for _, ch := range channelStats {
+		chName := model.ChannelToName[ch.Channel]
+		if chName == "" {
+			chName = fmt.Sprintf("%d", ch.Channel)
+		}
 		sourceDistribution = append(sourceDistribution, map[string]interface{}{
-			"name":  ch.Channel,
+			"name":  chName,
 			"value": ch.Count,
 		})
 	}
@@ -1397,6 +1407,7 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 		"预处理":    preprocessCount,
 		"处理中":    processingCount,
 		"已完成":    doneCount,
+		"待分县局/支队审核": districtAuditCount,
 		"状态分布":   statusDistribution,
 		"趋势":     map[string]interface{}{"dates": trendDates, "values": trendValues},
 		"分类统计":   map[string]interface{}{"categories": categories, "values": catValues},
@@ -1404,7 +1415,6 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 		// 保留原始数据以备后用
 		"status_stats":  statusStats,
 		"channel_stats": channelStats,
-		"month_stats":   monthStats,
 	}, nil
 }
 
@@ -1414,6 +1424,7 @@ func GetAttachments(letterNo string) (*model.LetterAttachment, error) {
 		return nil, err
 	}
 	if att == nil {
+		now := time.Now()
 		att = &model.LetterAttachment{
 			LetterNo:              letterNo,
 			CityDispatchFiles:     model.JSONRaw("[]"),
@@ -1421,6 +1432,8 @@ func GetAttachments(letterNo string) (*model.LetterAttachment, error) {
 			HandlerFeedbackFiles:  model.JSONRaw("[]"),
 			DistrictFeedbackFiles: model.JSONRaw("[]"),
 			CallRecordings:        model.JSONRaw("[]"),
+			CreatedAt:             now,
+			UpdatedAt:             now,
 		}
 	}
 	return att, nil
@@ -1462,6 +1475,65 @@ func UpdateAttachments(args map[string]interface{}) error {
 	} else {
 		att.CallRecordings = model.JSONRaw("[]")
 	}
+	return dao.UpsertAttachment(att)
+}
+
+// AppendAttachment 向 letter_attachments 的指定字段追加一条文件记录
+func AppendAttachment(letterNo, fileType, url, fileName string) error {
+	att, err := dao.GetAttachmentByLetterNo(letterNo)
+	if err != nil {
+		return err
+	}
+	if att == nil {
+		now := time.Now()
+		att = &model.LetterAttachment{
+			LetterNo:              letterNo,
+			CityDispatchFiles:     model.JSONRaw("[]"),
+			DistrictDispatchFiles: model.JSONRaw("[]"),
+			HandlerFeedbackFiles:  model.JSONRaw("[]"),
+			DistrictFeedbackFiles: model.JSONRaw("[]"),
+			CallRecordings:        model.JSONRaw("[]"),
+			CreatedAt:             now,
+			UpdatedAt:             now,
+		}
+	}
+
+	entry := map[string]string{"url": url, "name": fileName}
+
+	var currentJSON model.JSONRaw
+	switch fileType {
+	case "city_dispatch_files":
+		currentJSON = att.CityDispatchFiles
+	case "district_dispatch_files":
+		currentJSON = att.DistrictDispatchFiles
+	case "handler_feedback_files":
+		currentJSON = att.HandlerFeedbackFiles
+	case "district_feedback_files":
+		currentJSON = att.DistrictFeedbackFiles
+	default:
+		currentJSON = att.CallRecordings
+	}
+
+	var list []map[string]string
+	if len(currentJSON) > 0 {
+		json.Unmarshal(currentJSON, &list)
+	}
+	list = append(list, entry)
+	b, _ := json.Marshal(list)
+
+	switch fileType {
+	case "city_dispatch_files":
+		att.CityDispatchFiles = model.JSONRaw(b)
+	case "district_dispatch_files":
+		att.DistrictDispatchFiles = model.JSONRaw(b)
+	case "handler_feedback_files":
+		att.HandlerFeedbackFiles = model.JSONRaw(b)
+	case "district_feedback_files":
+		att.DistrictFeedbackFiles = model.JSONRaw(b)
+	default:
+		att.CallRecordings = model.JSONRaw(b)
+	}
+
 	return dao.UpsertAttachment(att)
 }
 
@@ -1687,4 +1759,19 @@ func isStationLevelUnit(targetUnit string) bool {
 		}
 	}
 	return false
+}
+
+func periodToGranularity(period string) string {
+	switch period {
+	case "day":
+		return "hour"
+	case "week":
+		return "day"
+	case "month":
+		return "day"
+	case "year":
+		return "month"
+	default:
+		return "month"
+	}
 }

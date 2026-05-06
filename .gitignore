@@ -3,3 +3,5 @@
 letter-manage-server
 letter-manage-backend
 *.log
+media/
+server

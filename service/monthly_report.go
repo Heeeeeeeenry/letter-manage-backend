@@ -291,8 +291,8 @@ func genMonthlySummary(dir, periodLabel string, realData, fakeData []LetterExpor
 // ─── 2. 通报数图统计 ───
 
 func genStatisticsChart(dir, yearMonth, monthName string, realData, fakeData []LetterExport) (string, error) {
-	tmpl := "/Users/v_liheng02/Desktop/other/局长信箱原始资料/2026年3月通报数图统计.xlsx"
-	if _, err := os.Stat(tmpl); os.IsNotExist(err) {
+	tmpl := detectTemplatePath()
+	if tmpl == "" {
 		return genEmptyExcel(dir, fmt.Sprintf("%s通报数图统计.xlsx", yearMonth))
 	}
 	src, _ := os.Open(tmpl)

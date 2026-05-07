@@ -58,6 +58,17 @@ func GenerateStatsChart(dir, periodLabel string, startTime, endTime time.Time,
 	curMonth := fmt.Sprintf("%d月", startTime.Month())
 	oldMonth := "3月"
 	oldPrevMonth := "2月"
+	tmplCur := "{month}"
+	tmplPrev := "{prev_month}"
+	tmplPrev2 := "{prev2_month}"
+	prev2Label := ""
+	if prevStart != nil {
+		prev2Month := prevStart.Month() - 1
+		if prev2Month < 1 {
+			prev2Month = 12
+		}
+		prev2Label = fmt.Sprintf("%d月", prev2Month)
+	}
 	for _, sname := range f.GetSheetList() {
 		rows, _ := f.GetRows(sname)
 		for ri, row := range rows {
@@ -66,6 +77,19 @@ func GenerateStatsChart(dir, periodLabel string, startTime, endTime time.Time,
 					continue
 				}
 				newCell := cell
+				// Replace template placeholders
+				newCell = strings.ReplaceAll(newCell, tmplCur, curMonth)
+				if prevLabel != "" {
+					newCell = strings.ReplaceAll(newCell, tmplPrev, prevLabel)
+				} else {
+					newCell = strings.ReplaceAll(newCell, tmplPrev, curMonth)
+				}
+				if prev2Label != "" {
+					newCell = strings.ReplaceAll(newCell, tmplPrev2, prev2Label)
+				} else {
+					newCell = strings.ReplaceAll(newCell, tmplPrev2, "")
+				}
+				// Also replace old hardcoded months
 				newCell = strings.ReplaceAll(newCell, oldMonth, curMonth)
 				if prevLabel != "" {
 					newCell = strings.ReplaceAll(newCell, oldPrevMonth, prevLabel)
@@ -103,7 +127,9 @@ func GenerateStatsChart(dir, periodLabel string, startTime, endTime time.Time,
 }
 
 func detectTemplatePath() string {
+	// 优先使用项目内置模板
 	paths := []string{
+		"templates/通报数图统计_模板.xlsx",
 		"/Users/liheng/Desktop/pic/origin/2026年3月通报数图统计.xlsx",
 		"/Users/v_liheng02/Desktop/other/局长信箱原始资料/2026年3月通报数图统计.xlsx",
 	}

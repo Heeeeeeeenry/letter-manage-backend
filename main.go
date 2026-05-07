@@ -86,6 +86,7 @@ func main() {
 	protected.POST("/letter/", controller.LetterController)
 	protected.POST("/setting/", controller.SettingController)
 	protected.POST("/llm/", controller.LLMController)
+	protected.POST("/export_report/", controller.ExportReportController)
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {

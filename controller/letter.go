@@ -95,7 +95,7 @@ func LetterController(c *gin.Context) {
 	case "export":
 		handleExport(c, req.Args, user)
 	case "export_monthly_report":
-		handleExportMonthlyReport(c, req.Args, user)
+		handleExportNew(c, req.Args, user)
 	default:
 		c.JSON(http.StatusBadRequest, model.ErrorResp("unknown order: "+req.Order))
 	}

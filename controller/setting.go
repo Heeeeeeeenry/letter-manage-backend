@@ -1,7 +1,10 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"letter-manage-backend/dao"
 	"letter-manage-backend/middleware"
@@ -41,13 +44,32 @@ func SettingController(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
+		name, _ := req.Args["name"].(string)
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "create", "分类管理", name, fmt.Sprintf("新增分类，名称:%s", name))
 
 	case "category_update":
+		id, _ := req.Args["id"].(float64)
+		oldCat, _ := dao.GetCategoryByID(uint(id))
 		if err := service.UpdateCategory(req.Args); err != nil {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 			return
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
+		var detail string
+		if oldCat != nil {
+			oldName := oldCat.Level1
+			if oldCat.Level2 != "" {
+				oldName = oldCat.Level2
+			}
+			if oldCat.Level3 != "" {
+				oldName = oldCat.Level3
+			}
+			newName, _ := req.Args["name"].(string)
+			if newName != "" && newName != oldName {
+				detail = fmt.Sprintf("名称从%s改为%s", oldName, newName)
+			}
+		}
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "update", "分类管理", strconv.FormatUint(uint64(id), 10), detail)
 
 	case "category_delete":
 		if err := service.DeleteCategory(req.Args); err != nil {
@@ -55,6 +77,9 @@ func SettingController(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
+		id, _ := req.Args["id"].(float64)
+		name, _ := req.Args["name"].(string)
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "delete", "分类管理", strconv.FormatUint(uint64(id), 10), fmt.Sprintf("删除分类，名称:%s", name))
 
 	// Units
 	case "get_units":
@@ -83,17 +108,36 @@ func SettingController(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
+		name, _ := req.Args["name"].(string)
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "create", "组织管理", name, fmt.Sprintf("新增组织，名称:%s", name))
 
 	case "update_unit":
 		if user.PermissionLevel != model.PermissionCity {
 			c.JSON(http.StatusOK, model.ErrorResp("无权限"))
 			return
 		}
+		id, _ := req.Args["id"].(float64)
+		oldUnit, _ := dao.GetUnitByID(uint(id))
 		if err := service.UpdateUnit(req.Args); err != nil {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 			return
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
+		var detail string
+		if oldUnit != nil {
+			oldName := oldUnit.Level1
+			if oldUnit.Level2 != "" {
+				oldName = oldUnit.Level2
+			}
+			if oldUnit.Level3 != "" {
+				oldName = oldUnit.Level3
+			}
+			newName, _ := req.Args["name"].(string)
+			if newName != "" && newName != oldName {
+				detail = fmt.Sprintf("名称从%s改为%s", oldName, newName)
+			}
+		}
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "update", "组织管理", strconv.FormatUint(uint64(id), 10), detail)
 
 	case "delete_unit":
 		if user.PermissionLevel != model.PermissionCity {
@@ -105,6 +149,9 @@ func SettingController(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
+		id, _ := req.Args["id"].(float64)
+		name, _ := req.Args["name"].(string)
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "delete", "组织管理", strconv.FormatUint(uint64(id), 10), fmt.Sprintf("删除组织，名称:%s", name))
 
 	// Users
 	case "get_user_list":
@@ -152,6 +199,10 @@ func SettingController(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
+		policeNumber, _ := req.Args["police_number"].(string)
+		name, _ := req.Args["name"].(string)
+		phone, _ := req.Args["phone"].(string)
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "create", "用户管理", policeNumber, fmt.Sprintf("新增用户，警号:%s，姓名:%s，手机号:%s", policeNumber, name, phone))
 
 	case "update_user":
 		if user.PermissionLevel == model.PermissionOfficer {
@@ -194,19 +245,53 @@ func SettingController(c *gin.Context) {
 				}
 			}
 		}
+		oldUser, _ := dao.GetUserByID(uint(idF))
 		if err := service.UpdateUser(req.Args); err != nil {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 			return
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
+		var detail string
+		if oldUser != nil {
+			parts := []string{}
+			if newName, ok := req.Args["name"].(string); ok && newName != oldUser.Name {
+				parts = append(parts, fmt.Sprintf("姓名从%s改为%s", oldUser.Name, newName))
+			}
+			if newPhone, ok := req.Args["phone"].(string); ok && newPhone != oldUser.Phone {
+				parts = append(parts, fmt.Sprintf("手机号从%s改为%s", oldUser.Phone, newPhone))
+			}
+			if newPN, ok := req.Args["police_number"].(string); ok && newPN != oldUser.PoliceNumber {
+				parts = append(parts, fmt.Sprintf("警号从%s改为%s", oldUser.PoliceNumber, newPN))
+			}
+			if newPL, ok := req.Args["permission_level"].(string); ok && newPL != string(oldUser.PermissionLevel) {
+				parts = append(parts, fmt.Sprintf("权限级别从%s改为%s", oldUser.PermissionLevel, newPL))
+			}
+			if v, ok := req.Args["is_admin"]; ok {
+				newAdmin, _ := v.(bool)
+				if newAdmin != oldUser.IsAdmin {
+					parts = append(parts, fmt.Sprintf("管理员状态从%t改为%t", oldUser.IsAdmin, newAdmin))
+				}
+			}
+			if len(parts) > 0 {
+				detail = strings.Join(parts, "；")
+			}
+		}
+		targetPN := strconv.FormatUint(uint64(idF), 10)
+		if oldUser != nil {
+			targetPN = oldUser.PoliceNumber
+		}
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "update", "用户管理", targetPN, detail)
 
 	case "delete_user":
+		var delID float64
+		var deleteTargetPN string
 		if user.PermissionLevel != model.PermissionCity {
 			// 区县局管理员可删除本单位及下属单位的用户
-			idF, _ := req.Args["id"].(float64)
-			if idF > 0 {
-				targetUser, err := dao.GetUserByID(uint(idF))
+			delID, _ = req.Args["id"].(float64)
+			if delID > 0 {
+				targetUser, err := dao.GetUserByID(uint(delID))
 				if err == nil && targetUser != nil {
+					deleteTargetPN = targetUser.PoliceNumber
 					// 权限校验规则（同update_user）：
 					// 1. 非admin不能操作同级用户
 					if !user.IsAdmin && user.PermissionLevel == targetUser.PermissionLevel {
@@ -239,6 +324,12 @@ func SettingController(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
+		name, _ := req.Args["name"].(string)
+		targetPN := deleteTargetPN
+		if targetPN == "" {
+			targetPN = strconv.FormatUint(uint64(delID), 10)
+		}
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "delete", "用户管理", targetPN, fmt.Sprintf("删除用户，名称:%s", name))
 
 	case "reset_password":
 		if user.PermissionLevel == model.PermissionOfficer {
@@ -247,9 +338,11 @@ func SettingController(c *gin.Context) {
 		}
 		// 权限校验规则（同update_user）：
 		idF, _ := req.Args["id"].(float64)
+		var resetTargetPN string
 		if idF > 0 {
 			targetUser, err := dao.GetUserByID(uint(idF))
 			if err == nil && targetUser != nil {
+				resetTargetPN = targetUser.PoliceNumber
 				// 1. 非admin不能操作同级
 				if !user.IsAdmin && user.PermissionLevel == targetUser.PermissionLevel {
 					c.JSON(http.StatusOK, model.ErrorResp("无权限修改同级用户密码"))
@@ -277,6 +370,12 @@ func SettingController(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
+		name, _ := req.Args["name"].(string)
+		targetPN := resetTargetPN
+		if targetPN == "" {
+			targetPN = strconv.FormatUint(uint64(idF), 10)
+		}
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "reset_password", "用户管理", targetPN, name)
 
 	// Dispatch Permissions
 	case "get_dispatch_permissions":
@@ -301,6 +400,8 @@ func SettingController(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
+		name, _ := req.Args["name"].(string)
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "create", "下发权限管理", name, fmt.Sprintf("新增下发权限，名称:%s", name))
 
 	case "update_dispatch_permission":
 		if user.PermissionLevel != model.PermissionCity {
@@ -312,6 +413,8 @@ func SettingController(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
+		id, _ := req.Args["id"].(float64)
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "update", "下发权限管理", strconv.FormatUint(uint64(id), 10), "下发范围变更")
 
 	case "delete_dispatch_permission":
 		if user.PermissionLevel != model.PermissionCity {
@@ -323,6 +426,9 @@ func SettingController(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
+		id, _ := req.Args["id"].(float64)
+		name, _ := req.Args["name"].(string)
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "delete", "下发权限管理", strconv.FormatUint(uint64(id), 10), fmt.Sprintf("删除下发权限，名称:%s", name))
 
 	case "check_dispatch_permission":
 		ok, err := service.CheckDispatchPermissionAPI(req.Args, user)
@@ -353,17 +459,28 @@ func SettingController(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
+		name, _ := req.Args["name"].(string)
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "create", "专项关注", name, fmt.Sprintf("新增专项关注，名称:%s", name))
 
 	case "update_special_focus":
 		if user.PermissionLevel != model.PermissionCity {
 			c.JSON(http.StatusOK, model.ErrorResp("无权限"))
 			return
 		}
+		id, _ := req.Args["id"].(float64)
+		oldSF, _ := dao.GetSpecialFocusByID(uint(id))
 		if err := service.UpdateSpecialFocus(req.Args); err != nil {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 			return
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
+		var detail string
+		if oldSF != nil {
+			if newName, ok := req.Args["tag_name"].(string); ok && newName != oldSF.Name {
+				detail = fmt.Sprintf("名称从%s改为%s", oldSF.Name, newName)
+			}
+		}
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "update", "专项关注", strconv.FormatUint(uint64(id), 10), detail)
 
 	case "delete_special_focus":
 		if user.PermissionLevel != model.PermissionCity {
@@ -375,6 +492,17 @@ func SettingController(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
+		id, _ := req.Args["id"].(float64)
+		name, _ := req.Args["name"].(string)
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "delete", "专项关注", strconv.FormatUint(uint64(id), 10), fmt.Sprintf("删除专项关注，名称:%s", name))
+
+	case "get_operation_logs":
+		data, err := service.GetOperationLogs(req.Args)
+		if err != nil {
+			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
+			return
+		}
+		c.JSON(http.StatusOK, model.SuccessResp(data))
 
 	default:
 		c.JSON(http.StatusBadRequest, model.ErrorResp("unknown order: "+req.Order))

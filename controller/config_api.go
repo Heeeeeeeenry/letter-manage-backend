@@ -75,6 +75,7 @@ func handleGetMenu(c *gin.Context) {
 	if user != nil && (user.PermissionLevel == model.PermissionCity || user.PermissionLevel == model.PermissionDistrict) {
 		adminItems = append(adminItems,
 			FrontMenuItem{ID: "users", Name: "用户管理", Icon: "fa-users"},
+			FrontMenuItem{ID: "operation-logs", Name: "操作记录", Icon: "fa-history"},
 		)
 	}
 	// 市局可见的管理员功能

@@ -51,5 +51,7 @@ func AutoMigrate() error {
 		&model.DispatchPermission{},
 		&model.Prompt{},
 		&model.SpecialFocus{},
+		&model.LetterSpecialFocus{},
+		&model.OperationLog{},
 	)
 }

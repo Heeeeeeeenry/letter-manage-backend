@@ -78,3 +78,66 @@ func GetAllPrompts() ([]model.Prompt, error) {
 	err := DB.Find(&prompts).Error
 	return prompts, err
 }
+
+// ──── LetterSpecialFocus DAO ────
+
+// AddLetterSpecialFocus 添加信件-专项关注绑定
+func AddLetterSpecialFocus(letterNo string, focusID uint) error {
+	lsf := &model.LetterSpecialFocus{LetterNo: letterNo, FocusID: focusID}
+	return DB.Create(lsf).Error
+}
+
+// RemoveLetterSpecialFocusesByLetterNo 删除信件的所有专项关注绑定
+func RemoveLetterSpecialFocusesByLetterNo(letterNo string) error {
+	return DB.Where("letter_no = ?", letterNo).Delete(&model.LetterSpecialFocus{}).Error
+}
+
+// GetFocusIDsByLetterNo 获取信件绑定的专项关注 ID 列表
+func GetFocusIDsByLetterNo(letterNo string) ([]uint, error) {
+	var lsfs []model.LetterSpecialFocus
+	if err := DB.Where("letter_no = ?", letterNo).Find(&lsfs).Error; err != nil {
+		return nil, err
+	}
+	ids := make([]uint, len(lsfs))
+	for i, lsf := range lsfs {
+		ids[i] = lsf.FocusID
+	}
+	return ids, nil
+}
+
+// CountLettersByFocusID 统计绑定了指定专项关注的去重信件数量
+func CountLettersByFocusID(focusID uint) int64 {
+	var count int64
+	DB.Model(&model.LetterSpecialFocus{}).
+		Where("focus_id = ?", focusID).
+		Distinct("letter_no").
+		Count(&count)
+	return count
+}
+
+// GetLetterNosByFocusID 获取绑定了指定专项关注的信件编号列表
+func GetLetterNosByFocusID(focusID uint) ([]string, error) {
+	var lsfs []model.LetterSpecialFocus
+	if err := DB.Where("focus_id = ?", focusID).Distinct("letter_no").Find(&lsfs).Error; err != nil {
+		return nil, err
+	}
+	nos := make([]string, len(lsfs))
+	for i, lsf := range lsfs {
+		nos[i] = lsf.LetterNo
+	}
+	return nos, nil
+}
+
+// GetFocusIDsByLetterNos 批量获取多条信件的 focus_id (返回 map[letter_no]focus_id)
+func GetFocusIDsByLetterNos(letterNos []string) (map[string]uint, error) {
+	var lsfs []model.LetterSpecialFocus
+	if err := DB.Where("letter_no IN ?", letterNos).Find(&lsfs).Error; err != nil {
+		return nil, err
+	}
+	result := make(map[string]uint, len(lsfs))
+	// 每条 letter_no 只保留最近一条
+	for _, lsf := range lsfs {
+		result[lsf.LetterNo] = lsf.FocusID
+	}
+	return result, nil
+}

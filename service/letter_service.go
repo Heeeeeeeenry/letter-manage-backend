@@ -4,11 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"letter-manage-backend/dao"
 	"letter-manage-backend/model"
+
+	"github.com/xuri/excelize/v2"
 )
 
 func GenerateLetterNo() string {
@@ -134,6 +138,19 @@ func GetDispatchList(unitID *uint, permLevel string, args map[string]interface{}
 	if err != nil {
 		return nil, err
 	}
+	// 批量注入 focus_id
+	if len(letters) > 0 {
+		letterNos := make([]string, len(letters))
+		for i, l := range letters {
+			letterNos[i] = l.LetterNo
+		}
+		focusMap, _ := dao.GetFocusIDsByLetterNos(letterNos)
+		for i, l := range letters {
+			if fid, ok := focusMap[l.LetterNo]; ok {
+				letters[i].FocusID = &fid
+			}
+		}
+	}
 	return map[string]interface{}{
 		"list":      letters,
 		"total":     total,
@@ -218,6 +235,12 @@ func GetLetterDetail(letterNo string, permLevel string, userUnitID *uint) (map[s
 	flow, _ := dao.GetFlowByLetterNo(letterNo)
 	att, _ := dao.GetAttachmentByLetterNo(letterNo)
 	feedbacks, _ := dao.GetFeedbacksByLetterNo(letterNo)
+	// 注入 focus_id
+	if focusIDs, err := dao.GetFocusIDsByLetterNos([]string{letterNo}); err == nil {
+		if fid, ok := focusIDs[letterNo]; ok {
+			letter.FocusID = &fid
+		}
+	}
 	// history letters by same phone
 	var history []model.Letter
 	if letter.Phone != "" {
@@ -369,10 +392,6 @@ func CreateLetter(args map[string]interface{}) (*model.Letter, error) {
 	} else {
 		letter.ReceivedAt = time.Now()
 	}
-	if v, ok := args["special_tags"]; ok {
-		b, _ := json.Marshal(v)
-		letter.SpecialTags = model.JSONRaw(b)
-	}
 	if err := dao.CreateLetter(letter); err != nil {
 		return nil, err
 	}
@@ -434,10 +453,6 @@ func UpdateLetter(args map[string]interface{}) error {
 		if err == nil {
 			letter.ReceivedAt = t
 		}
-	}
-	if v, ok := args["special_tags"]; ok {
-		b, _ := json.Marshal(v)
-		letter.SpecialTags = model.JSONRaw(b)
 	}
 	return dao.UpdateLetter(letter)
 }
@@ -625,6 +640,12 @@ func DispatchLetter(args map[string]interface{}, operator *model.PoliceUser) err
 	if err := appendFlowRecord(letterNo, record); err != nil {
 		return err
 	}
+	// 保存专项关注绑定关系
+	if focusIDF, ok := args["focus_id"].(float64); ok && focusIDF > 0 {
+		// 先清除旧绑定，再添加新绑定
+		dao.RemoveLetterSpecialFocusesByLetterNo(letterNo)
+		dao.AddLetterSpecialFocus(letterNo, uint(focusIDF))
+	}
 	// 每次下发重新设置 4 个工作日处理倒计时（扣除节假日）
 	deadline := GetWorkdayDeadline(time.Now(), 4)
 	return dao.UpdateLetterDeadline(letterNo, &deadline)
@@ -788,7 +809,7 @@ func MarkInvalid(args map[string]interface{}, operator *model.PoliceUser) error 
 
 	// 更新状态为待核查，流转到上级单位，清除处理人
 	updates := map[string]interface{}{
-		"current_status":  model.StatusPendingVerification,
+		"current_status":  model.StatusCodePendingVerification,
 		"current_unit_id": targetUnitID,
 		"handler_user_id": nil,
 		"handler_unit_id": nil,
@@ -871,7 +892,7 @@ func SubmitProcessing(args map[string]interface{}, operator *model.PoliceUser) e
 
 	// 更新状态为"待核查"，同时将 current_unit_id 设为上级审核单位
 	updates := map[string]interface{}{
-		"current_status": model.StatusPendingVerification,
+		"current_status": model.StatusCodePendingVerification,
 	}
 	if parentUnitID != nil {
 		updates["current_unit_id"] = *parentUnitID
@@ -1062,8 +1083,12 @@ func ReturnLetter(args map[string]interface{}, operator *model.PoliceUser) error
 		}
 	}
 	// 更新信件为上一个状态
+	statusCode := model.StatusCodeReturned
+	if code, ok := model.StatusNameToCode[prevStatus]; ok {
+		statusCode = code
+	}
 	updates := map[string]interface{}{
-		"current_status":   prevStatus,
+		"current_status":   statusCode,
 		"current_operator": prevOperator,
 	}
 	if prevUnitID != nil {
@@ -1162,7 +1187,30 @@ func AuditReject(args map[string]interface{}, operator *model.PoliceUser) error 
 				action, _ := r["action"].(string)
 				if action == "submit_processing" {
 					processingUnit, _ = r["from_unit"].(string)
+					// 如果 from_unit 为空，尝试从 operator_unit 获取
+					if processingUnit == "" {
+						if opUnit, ok := r["operator_unit"].(string); ok {
+							processingUnit = opUnit
+						}
+					}
 					break
+				}
+			}
+			// 如果仍未找到，从最近的 handle_by_self 记录获取处理单位
+			if processingUnit == "" {
+				for i := len(records) - 1; i >= 0; i-- {
+					r := records[i]
+					action, _ := r["action"].(string)
+					if action == "handle_by_self" || action == "dispatch" {
+						if unit, ok := r["unit"].(string); ok && unit != "" {
+							processingUnit = unit
+						} else if opUnit, ok := r["operator_unit"].(string); ok && opUnit != "" {
+							processingUnit = opUnit
+						} else if toUnit, ok := r["to_unit"].(string); ok && toUnit != "" {
+							processingUnit = toUnit
+						}
+						break
+					}
 				}
 			}
 		}
@@ -1175,7 +1223,7 @@ func AuditReject(args map[string]interface{}, operator *model.PoliceUser) error 
 
 	// 退回处理单位，状态恢复为"处理中"
 	updates := map[string]interface{}{
-		"current_status": model.StatusProcessing,
+		"current_status": model.StatusCodeProcessing,
 	}
 	// 如果 processingUnit 不为空，查询对应的 ID
 	if processingUnit != "" && processingUnitID == nil {
@@ -1542,7 +1590,7 @@ func GetCategories() ([]map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	// build tree
+	// build tree (with IDs for frontend to use in filtering)
 	l1Map := map[string]map[string]interface{}{}
 	var result []map[string]interface{}
 	for _, c := range cats {
@@ -1574,8 +1622,19 @@ func GetCategories() ([]map[string]interface{}, error) {
 			}
 			if c.Level3 != "" {
 				l2Children := l2Node["children"].([]map[string]interface{})
-				l2Children = append(l2Children, map[string]interface{}{"name": c.Level3})
+				l2Children = append(l2Children, map[string]interface{}{
+					"name": c.Level3,
+					"id":   c.ID,
+				})
 				l2Node["children"] = l2Children
+			} else {
+				// Level2 has no Level3 — store the category ID on Level2 node itself
+				// Only set if there's truly no Level3 (the category entry is level2-only)
+				// But since each row in categories has its own ID, we need to track
+				// which ID corresponds to the (level1,level2) pair without level3
+				if _, hasID := l2Node["id"]; !hasID {
+					l2Node["id"] = c.ID
+				}
 			}
 		}
 	}
@@ -1774,4 +1833,266 @@ func periodToGranularity(period string) string {
 	default:
 		return "month"
 	}
+}
+
+// ExportLetters 导出信件为 Excel，返回文件路径
+func ExportLetters(permLevel string, unitID *uint, handlerUserID uint, args map[string]interface{}) (string, error) {
+	filter := dao.LetterFilter{}
+	now := time.Now()
+
+	// 时间范围：优先用 start_time/end_time，其次用 period
+	if v, ok := args["start_time"].(string); ok && v != "" {
+		t, err := time.ParseInLocation("2006-01-02", v, time.Local)
+		if err == nil {
+			filter.StartTime = &t
+		}
+	}
+	if v, ok := args["end_time"].(string); ok && v != "" {
+		t, err := time.ParseInLocation("2006-01-02", v, time.Local)
+		if err == nil {
+			t = t.Add(24*time.Hour - time.Second)
+			filter.EndTime = &t
+		}
+	}
+	// 如果没有精确时间范围，使用 period 兜底
+	if filter.StartTime == nil {
+		now := time.Now()
+		period, _ := args["period"].(string)
+		switch period {
+		case "day":
+			t := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+			filter.StartTime = &t
+		case "week":
+			t := now.AddDate(0, 0, -6)
+			t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, now.Location())
+			filter.StartTime = &t
+		case "month":
+			t := now.AddDate(0, 0, -29)
+			t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, now.Location())
+			filter.StartTime = &t
+		case "year":
+			t := now.AddDate(0, 0, -364)
+			t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, now.Location())
+			filter.StartTime = &t
+		}
+		if filter.StartTime != nil {
+			t := now
+			filter.EndTime = &t
+		}
+	}
+
+	// 筛选字段
+	if v, ok := args["status"].(string); ok {
+		filter.Status = v
+	}
+	if v, ok := args["category_id"].(float64); ok && v > 0 {
+		cid := uint(v)
+		filter.CategoryID = &cid
+	}
+	if v, ok := args["keyword"].(string); ok {
+		filter.Keyword = v
+	}
+	if v, ok := args["letter_no"].(string); ok {
+		filter.LetterNo = v
+	}
+	if v, ok := args["citizen_name"].(string); ok {
+		filter.CitizenName = v
+	}
+	if v, ok := args["phone"].(string); ok {
+		filter.Phone = v
+	}
+	if v, ok := args["id_card"].(string); ok {
+		filter.IDCard = v
+	}
+
+	// 权限过滤
+	viewMode, _ := args["view_mode"].(string)
+	switch permLevel {
+	case "CITY":
+	case "DISTRICT":
+		if unitID != nil {
+			unitIDs := dao.GetSubordinateUnitIDs(*unitID)
+			if len(unitIDs) > 0 {
+				filter.AllUnitIDs = unitIDs
+			} else {
+				filter.AllUnitID = unitID
+			}
+		}
+	default:
+		if unitID != nil {
+			filter.AllUnitID = unitID
+		}
+	}
+	if viewMode == "personal" || permLevel == "OFFICER" {
+		if handlerUserID > 0 {
+			filter.HandlerUserID = &handlerUserID
+		}
+	}
+
+	letters, err := dao.GetLettersForExport(filter)
+	if err != nil {
+		return "", err
+	}
+
+	f := excelize.NewFile()
+	sheet := "信件数据"
+	f.SetSheetName("Sheet1", sheet)
+
+	// 标题行样式
+	headerStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{Bold: true, Size: 11, Family: "微软雅黑"},
+		Fill: excelize.Fill{Type: "pattern", Color: []string{"#4472C4"}, Pattern: 1},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center", WrapText: true},
+		Border: []excelize.Border{
+			{Type: "left", Color: "000000", Style: 1},
+			{Type: "right", Color: "000000", Style: 1},
+			{Type: "top", Color: "000000", Style: 1},
+			{Type: "bottom", Color: "000000", Style: 1},
+		},
+	})
+
+	cellStyle, _ := f.NewStyle(&excelize.Style{
+		Alignment: &excelize.Alignment{Vertical: "center", WrapText: true},
+		Border: []excelize.Border{
+			{Type: "left", Color: "000000", Style: 1},
+			{Type: "right", Color: "000000", Style: 1},
+			{Type: "top", Color: "000000", Style: 1},
+			{Type: "bottom", Color: "000000", Style: 1},
+		},
+	})
+
+	// 表头
+	headers := []string{
+		"序号", "信件编号", "信件状态", "来信时间", "来信渠道",
+		"群众姓名", "手机号码", "信件类别", "信件细类", "简要诉求",
+		"分县局", "主办单位", "是否逾期", "是否退回",
+	}
+	for i, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(sheet, cell, h)
+		f.SetCellStyle(sheet, cell, cell, headerStyle)
+	}
+
+	// 数据行
+	for i, l := range letters {
+		row := i + 2
+		f.SetCellValue(sheet, cellName(1, row), i+1)
+		f.SetCellValue(sheet, cellName(2, row), l.LetterNo)
+		f.SetCellValue(sheet, cellName(3, row), model.StatusCodeToName[l.CurrentStatus])
+		f.SetCellValue(sheet, cellName(4, row), l.ReceivedAt.Format("2006-01-02 15:04:05"))
+		f.SetCellValue(sheet, cellName(5, row), model.ChannelToName[l.Channel])
+		f.SetCellValue(sheet, cellName(6, row), l.CitizenName)
+		f.SetCellValue(sheet, cellName(7, row), l.Phone)
+		// 分类
+		catStr := ""
+		if l.Category != nil {
+			catStr = l.Category.Level1
+		}
+		f.SetCellValue(sheet, cellName(8, row), catStr)
+		catDetail := ""
+		if l.Category != nil {
+			parts := []string{}
+			if l.Category.Level2 != "" {
+				parts = append(parts, l.Category.Level2)
+			}
+			if l.Category.Level3 != "" {
+				parts = append(parts, l.Category.Level3)
+			}
+			catDetail = strings.Join(parts, " / ")
+		}
+		f.SetCellValue(sheet, cellName(9, row), catDetail)
+		f.SetCellValue(sheet, cellName(10, row), l.Content)
+		f.SetCellValue(sheet, cellName(11, row), getUnitFullName(l.CurrentUnitID))
+		f.SetCellValue(sheet, cellName(12, row), getUnitFullName(l.HandlerUnitID))
+		// 是否逾期
+		overdue := "否"
+		if l.DeadlineAt != nil && now.After(*l.DeadlineAt) && l.CurrentStatus != model.StatusCodeDone {
+			overdue = "是"
+		}
+		f.SetCellValue(sheet, cellName(13, row), overdue)
+		// 是否退回
+		returned := "否"
+		if l.CurrentStatus == model.StatusCodeReturned {
+			returned = "是"
+		}
+		f.SetCellValue(sheet, cellName(14, row), returned)
+
+		// 应用样式
+		for c := 1; c <= len(headers); c++ {
+			cell, _ := excelize.CoordinatesToCellName(c, row)
+			f.SetCellStyle(sheet, cell, cell, cellStyle)
+		}
+	}
+
+	// 列宽
+	f.SetColWidth(sheet, "A", "A", 6)
+	f.SetColWidth(sheet, "B", "B", 22)
+	f.SetColWidth(sheet, "C", "C", 12)
+	f.SetColWidth(sheet, "D", "D", 18)
+	f.SetColWidth(sheet, "E", "E", 10)
+	f.SetColWidth(sheet, "F", "F", 10)
+	f.SetColWidth(sheet, "G", "G", 13)
+	f.SetColWidth(sheet, "H", "H", 14)
+	f.SetColWidth(sheet, "I", "I", 20)
+	f.SetColWidth(sheet, "J", "J", 40)
+	f.SetColWidth(sheet, "K", "K", 16)
+	f.SetColWidth(sheet, "L", "L", 16)
+	f.SetColWidth(sheet, "M", "M", 8)
+	f.SetColWidth(sheet, "N", "N", 8)
+
+	// 保存
+	tmpDir := os.TempDir()
+	filename := fmt.Sprintf("信件导出_%s.xlsx", now.Format("20060102_150405"))
+	filePath := filepath.Join(tmpDir, filename)
+	if err := f.SaveAs(filePath); err != nil {
+		return "", err
+	}
+	return filePath, nil
+}
+
+func cellName(col, row int) string {
+	name, _ := excelize.CoordinatesToCellName(col, row)
+	return name
+}
+
+func getUnitFullName(unitID *uint) string {
+	if unitID == nil {
+		return ""
+	}
+	return dao.GetUnitFullNameByID(unitID)
+}
+
+// SetLetterSpecialFocus 设置信件的专项关注（独立于下发动作）
+func SetLetterSpecialFocus(args map[string]interface{}) error {
+	letterNo, ok := args["letter_no"].(string)
+	if !ok || letterNo == "" {
+		return errors.New("letter_no required")
+	}
+	focusIDF, ok := args["focus_id"].(float64)
+	if !ok {
+		return errors.New("focus_id required")
+	}
+	// 先清除旧绑定，再添加新绑定
+	dao.RemoveLetterSpecialFocusesByLetterNo(letterNo)
+	return dao.AddLetterSpecialFocus(letterNo, uint(focusIDF))
+}
+
+// GetLetterSpecialFocus 获取信件的专项关注
+func GetLetterSpecialFocus(letterNo string) (uint, string, error) {
+	ids, err := dao.GetFocusIDsByLetterNo(letterNo)
+	if err != nil {
+		return 0, "", err
+	}
+	if len(ids) == 0 {
+		return 0, "", nil
+	}
+	focusID := ids[len(ids)-1] // 取最近一条
+	sf, err := dao.GetSpecialFocusByID(focusID)
+	if err != nil {
+		return focusID, "", nil
+	}
+	if sf == nil {
+		return focusID, "", nil
+	}
+	return sf.ID, sf.Name, nil
 }

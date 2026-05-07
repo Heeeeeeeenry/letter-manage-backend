@@ -522,8 +522,23 @@ func CheckDispatchPermissionAPI(args map[string]interface{}, operator *model.Pol
 
 // SpecialFocus
 
-func GetSpecialFocusList() ([]model.SpecialFocus, error) {
-	return dao.GetAllSpecialFocuses()
+func GetSpecialFocusList() ([]map[string]interface{}, error) {
+	sfs, err := dao.GetAllSpecialFocuses()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]map[string]interface{}, len(sfs))
+	for i, sf := range sfs {
+		count := dao.CountLettersByFocusID(sf.ID)
+		result[i] = map[string]interface{}{
+			"id":           sf.ID,
+			"name":         sf.Name,
+			"description":  sf.Description,
+			"letter_count": count,
+			"created_at":   sf.CreatedAt,
+		}
+	}
+	return result, nil
 }
 
 func CreateSpecialFocus(args map[string]interface{}) error {
@@ -531,9 +546,8 @@ func CreateSpecialFocus(args map[string]interface{}) error {
 	if v, ok := args["tag_name"].(string); ok {
 		sf.Name = v
 	}
-	if v, ok := args["keywords"]; ok {
-		b, _ := marshalJSON(v)
-		sf.Keywords = model.JSONRaw(b)
+	if v, ok := args["description"].(string); ok {
+		sf.Description = v
 	}
 	if sf.Name == "" {
 		return errors.New("tag_name required")
@@ -553,9 +567,8 @@ func UpdateSpecialFocus(args map[string]interface{}) error {
 	if v, ok := args["tag_name"].(string); ok {
 		sf.Name = v
 	}
-	if v, ok := args["keywords"]; ok {
-		b, _ := marshalJSON(v)
-		sf.Keywords = model.JSONRaw(b)
+	if v, ok := args["description"].(string); ok {
+		sf.Description = v
 	}
 	return dao.UpdateSpecialFocus(sf)
 }

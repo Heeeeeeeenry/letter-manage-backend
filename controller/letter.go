@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"letter-manage-backend/config"
+	"letter-manage-backend/dao"
 	"letter-manage-backend/middleware"
 	"letter-manage-backend/model"
 	"letter-manage-backend/service"
@@ -54,11 +55,11 @@ func LetterController(c *gin.Context) {
 	case "get_by_idcard":
 		handleGetByIDCard(c, req.Args, user)
 	case "create":
-		handleCreateLetter(c, req.Args)
+		handleCreateLetter(c, req.Args, user)
 	case "update":
-		handleUpdateLetter(c, req.Args)
+		handleUpdateLetter(c, req.Args, user)
 	case "delete":
-		handleDeleteLetter(c, req.Args)
+		handleDeleteLetter(c, req.Args, user)
 	case "update_status":
 		handleUpdateStatus(c, req.Args, user)
 	case "get_statistics":
@@ -81,12 +82,20 @@ func LetterController(c *gin.Context) {
 		handleSubmitProcessing(c, req.Args, user)
 	case "handle_by_self":
 		handleHandleBySelf(c, req.Args, user)
+	case "set_special_focus":
+		handleSetSpecialFocus(c, req.Args)
+	case "get_letter_special_focus":
+		handleGetLetterSpecialFocus(c, req.Args)
 	case "return_letter":
 		handleReturnLetter(c, req.Args, user)
 	case "audit_approve":
 		handleAuditApprove(c, req.Args, user)
 	case "audit_reject":
 		handleAuditReject(c, req.Args, user)
+	case "export":
+		handleExport(c, req.Args, user)
+	case "export_monthly_report":
+		handleExportMonthlyReport(c, req.Args, user)
 	default:
 		c.JSON(http.StatusBadRequest, model.ErrorResp("unknown order: "+req.Order))
 	}
@@ -184,29 +193,42 @@ func handleGetByIDCard(c *gin.Context, args map[string]interface{}, user *model.
 	c.JSON(http.StatusOK, model.SuccessResp(letters))
 }
 
-func handleCreateLetter(c *gin.Context, args map[string]interface{}) {
+func handleCreateLetter(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
 	letter, err := service.CreateLetter(args)
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return
 	}
 	c.JSON(http.StatusOK, model.SuccessResp(letter))
+	citizenName, _ := args["citizen_name"].(string)
+	service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "create", "信函登记", letter.LetterNo, fmt.Sprintf("新增信件，编号:%s，群众:%s", letter.LetterNo, citizenName))
 }
 
-func handleUpdateLetter(c *gin.Context, args map[string]interface{}) {
+func handleUpdateLetter(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
+	letterNo, _ := args["letter_no"].(string)
+	oldLetter, _ := dao.GetLetterByNo(letterNo)
 	if err := service.UpdateLetter(args); err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return
 	}
 	c.JSON(http.StatusOK, model.SuccessResp(nil))
+	var detail string
+	if oldLetter != nil {
+		if newName, ok := args["citizen_name"].(string); ok && newName != oldLetter.CitizenName {
+			detail = fmt.Sprintf("群众名称从%s改为%s", oldLetter.CitizenName, newName)
+		}
+	}
+	service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "update", "信函修改", letterNo, detail)
 }
 
-func handleDeleteLetter(c *gin.Context, args map[string]interface{}) {
+func handleDeleteLetter(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
 	if err := service.DeleteLetter(args); err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return
 	}
 	c.JSON(http.StatusOK, model.SuccessResp(nil))
+	letterNo, _ := args["letter_no"].(string)
+	service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "delete", "信件", letterNo, fmt.Sprintf("删除信件，编号:%s", letterNo))
 }
 
 func handleUpdateStatus(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
@@ -265,6 +287,9 @@ func handleDispatch(c *gin.Context, args map[string]interface{}, user *model.Pol
 		return
 	}
 	c.JSON(http.StatusOK, model.SuccessResp(nil))
+	letterNo, _ := args["letter_no"].(string)
+	targetUnit, _ := args["target_unit"].(string)
+	service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "dispatch", "下发工作台", letterNo, fmt.Sprintf("下发信件，编号:%s，下发至:%s", letterNo, targetUnit))
 }
 
 func handleAnalyzeLetter(c *gin.Context, args map[string]interface{}) {
@@ -288,6 +313,8 @@ func handleAutoDispatch(c *gin.Context, args map[string]interface{}, user *model
 		return
 	}
 	c.JSON(http.StatusOK, model.SuccessResp(result))
+	letterNo, _ := args["letter_no"].(string)
+	service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "auto_dispatch", "下发工作台", letterNo, fmt.Sprintf("AI自动下发，编号:%s", letterNo))
 }
 
 func handleMarkInvalid(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
@@ -296,6 +323,8 @@ func handleMarkInvalid(c *gin.Context, args map[string]interface{}, user *model.
 		return
 	}
 	c.JSON(http.StatusOK, model.SuccessResp(nil))
+	letterNo, _ := args["letter_no"].(string)
+	service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "mark_invalid", "信函管理", letterNo, fmt.Sprintf("标记无效，编号:%s", letterNo))
 }
 
 func handleSubmitProcessing(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
@@ -304,6 +333,8 @@ func handleSubmitProcessing(c *gin.Context, args map[string]interface{}, user *m
 		return
 	}
 	c.JSON(http.StatusOK, model.SuccessResp(nil))
+	letterNo, _ := args["letter_no"].(string)
+	service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "submit_processing", "处理工作台", letterNo, fmt.Sprintf("提交处理，编号:%s", letterNo))
 }
 
 func handleHandleBySelf(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
@@ -312,6 +343,8 @@ func handleHandleBySelf(c *gin.Context, args map[string]interface{}, user *model
 		return
 	}
 	c.JSON(http.StatusOK, model.SuccessResp(nil))
+	letterNo, _ := args["letter_no"].(string)
+	service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "handle_by_self", "处理工作台", letterNo, fmt.Sprintf("自行处理，编号:%s", letterNo))
 }
 
 func handleReturnLetter(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
@@ -320,6 +353,8 @@ func handleReturnLetter(c *gin.Context, args map[string]interface{}, user *model
 		return
 	}
 	c.JSON(http.StatusOK, model.SuccessResp(nil))
+	letterNo, _ := args["letter_no"].(string)
+	service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "return_letter", "核查工作台", letterNo, fmt.Sprintf("退回信件，编号:%s", letterNo))
 }
 
 func handleAuditApprove(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
@@ -328,6 +363,8 @@ func handleAuditApprove(c *gin.Context, args map[string]interface{}, user *model
 		return
 	}
 	c.JSON(http.StatusOK, model.SuccessResp(nil))
+	letterNo, _ := args["letter_no"].(string)
+	service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "审核通过", "核查工作台", letterNo, fmt.Sprintf("核查通过，编号:%s", letterNo))
 }
 
 func handleAuditReject(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
@@ -336,6 +373,8 @@ func handleAuditReject(c *gin.Context, args map[string]interface{}, user *model.
 		return
 	}
 	c.JSON(http.StatusOK, model.SuccessResp(nil))
+	letterNo, _ := args["letter_no"].(string)
+	service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "审核不通过", "核查工作台", letterNo, fmt.Sprintf("核查驳回，编号:%s", letterNo))
 }
 
 func handleFileUpload(c *gin.Context, user *model.PoliceUser) {
@@ -384,4 +423,59 @@ func handleFileUpload(c *gin.Context, user *model.PoliceUser) {
 		"file_type": fileType,
 		"letter_no": letterNo,
 	}))
+}
+
+func handleExport(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
+	filePath, err := service.ExportLetters(string(user.PermissionLevel), user.UnitID, user.ID, args)
+	if err != nil {
+		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
+		return
+	}
+	c.FileAttachment(filePath, filepath.Base(filePath))
+}
+
+func handleSetSpecialFocus(c *gin.Context, args map[string]interface{}) {
+	if err := service.SetLetterSpecialFocus(args); err != nil {
+		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, model.SuccessResp(nil))
+}
+
+func handleGetLetterSpecialFocus(c *gin.Context, args map[string]interface{}) {
+	letterNo, ok := args["letter_no"].(string)
+	if !ok || letterNo == "" {
+		c.JSON(http.StatusOK, model.ErrorResp("letter_no required"))
+		return
+	}
+	focusID, focusName, err := service.GetLetterSpecialFocus(letterNo)
+	if err != nil {
+		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, model.SuccessResp(map[string]interface{}{
+		"focus_id":   focusID,
+		"focus_name": focusName,
+	}))
+}
+
+func handleExportMonthlyReport(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
+	period, _ := args["period"].(string)
+
+	var filePath string
+	var err error
+
+	if period == "all" || period == "" {
+		// 全部：直接导出信件数据，与 LettersView 导出一致
+		filePath, err = service.ExportLetters(string(user.PermissionLevel), user.UnitID, user.ID, args)
+	} else {
+		filePath, err = service.ExportMonthlyReport(string(user.PermissionLevel), user.UnitID, period)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
+		return
+	}
+	c.FileAttachment(filePath, filepath.Base(filePath))
+	os.RemoveAll(filepath.Dir(filePath))
 }

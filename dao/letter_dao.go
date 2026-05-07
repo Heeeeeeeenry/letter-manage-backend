@@ -139,7 +139,7 @@ func buildLetterQuery(filter LetterFilter) *gorm.DB {
 func GetLetterList(filter LetterFilter) ([]model.Letter, int64, error) {
 	var letters []model.Letter
 	var total int64
-	query := buildLetterQuery(filter)
+	query := buildLetterQuery(filter).Preload("Category").Preload("CurrentUnitObj")
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
@@ -158,7 +158,7 @@ func GetLetterList(filter LetterFilter) ([]model.Letter, int64, error) {
 
 func GetLetterByNo(letterNo string) (*model.Letter, error) {
 	var letter model.Letter
-	err := DB.Where("letter_no = ?", letterNo).First(&letter).Error
+	err := DB.Where("letter_no = ?", letterNo).Preload("Category").First(&letter).Error
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +167,7 @@ func GetLetterByNo(letterNo string) (*model.Letter, error) {
 
 func GetLetterByID(id uint) (*model.Letter, error) {
 	var letter model.Letter
-	err := DB.First(&letter, id).Error
+	err := DB.Where("id = ?", id).Preload("Category").First(&letter).Error
 	if err != nil {
 		return nil, err
 	}
@@ -176,13 +176,13 @@ func GetLetterByID(id uint) (*model.Letter, error) {
 
 func GetLettersByPhone(phone string) ([]model.Letter, error) {
 	var letters []model.Letter
-	err := DB.Where("phone = ?", phone).Order("created_at DESC").Find(&letters).Error
+	err := DB.Where("phone = ?", phone).Preload("Category").Order("created_at DESC").Find(&letters).Error
 	return letters, err
 }
 
 func GetLettersByIDCard(idCard string) ([]model.Letter, error) {
 	var letters []model.Letter
-	err := DB.Where("id_card = ?", idCard).Order("created_at DESC").Find(&letters).Error
+	err := DB.Where("id_card = ?", idCard).Preload("Category").Order("created_at DESC").Find(&letters).Error
 	return letters, err
 }
 
@@ -273,7 +273,7 @@ func UpsertLetterFlow(letterNo string, flowRecords json.RawMessage) error {
 		return err
 	}
 	flow.FlowRecords = model.JSONRaw(flowRecords)
-	return DB.Save(&flow).Error
+	return DB.Model(&model.LetterFlow{}).Where("letter_no = ?", letterNo).Update("flow_records", flowRecords).Error
 }
 
 // Attachment DAO
@@ -572,7 +572,7 @@ func unitNamesToIDs(names []string) []uint {
 }
 
 func GetDispatchList(unitID *uint, permLevel string, page, pageSize int) ([]model.Letter, int64, error) {
-	query := DB.Model(&model.Letter{})
+	query := DB.Model(&model.Letter{}).Preload("Category")
 	switch permLevel {
 	case "CITY":
 		query = query.Where("current_status = ?", model.StatusCodePreProcess)
@@ -702,7 +702,7 @@ func GetProcessingList(unitID *uint, permLevel string, page, pageSize int, handl
 	}
 	offset := (page - 1) * pageSize
 	var letters []model.Letter
-	err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
+	err := query.Preload("Category").Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
 	return letters, total, err
 }
 
@@ -751,7 +751,7 @@ func GetProcessingListByUnitID(unitID uint, permLevel string, page, pageSize int
 	}
 	offset := (page - 1) * pageSize
 	var letters []model.Letter
-	err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
+	err := query.Preload("Category").Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
 	return letters, total, err
 }
 
@@ -794,7 +794,7 @@ func GetAuditList(unitID *uint, permLevel string, page, pageSize int) ([]model.L
 	}
 	offset := (page - 1) * pageSize
 	var letters []model.Letter
-	err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
+	err := query.Preload("Category").Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
 	return letters, total, err
 }
 
@@ -827,6 +827,53 @@ func GetAuditListByUnitID(unitID uint, permLevel string, page, pageSize int) ([]
 	}
 	offset := (page - 1) * pageSize
 	var letters []model.Letter
-	err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
+	err := query.Preload("Category").Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
 	return letters, total, err
+}
+
+// GetLettersForExport 导出用：不限条数，预加载 Category，支持筛选
+func GetLettersForExport(filter LetterFilter) ([]model.Letter, error) {
+	var letters []model.Letter
+	query := DB.Model(&model.Letter{}).Preload("Category")
+	if filter.StartTime != nil {
+		query = query.Where("received_at >= ?", filter.StartTime)
+	}
+	if filter.EndTime != nil {
+		query = query.Where("received_at <= ?", filter.EndTime)
+	}
+	if filter.Status != "" {
+		if code, ok := model.StatusNameToCode[filter.Status]; ok {
+			query = query.Where("current_status = ?", code)
+		}
+	}
+	if filter.CategoryID != nil {
+		query = query.Where("category_id = ?", *filter.CategoryID)
+	}
+	if filter.Keyword != "" {
+		like := "%" + filter.Keyword + "%"
+		query = query.Where("citizen_name LIKE ? OR phone LIKE ? OR letter_no LIKE ? OR content LIKE ?", like, like, like, like)
+	}
+	if filter.LetterNo != "" {
+		query = query.Where("letter_no = ?", filter.LetterNo)
+	}
+	if filter.CitizenName != "" {
+		query = query.Where("citizen_name = ?", filter.CitizenName)
+	}
+	if filter.Phone != "" {
+		query = query.Where("phone = ?", filter.Phone)
+	}
+	if filter.IDCard != "" {
+		query = query.Where("id_card = ?", filter.IDCard)
+	}
+	// 单位过滤
+	if len(filter.AllUnitIDs) > 0 {
+		query = query.Where("(handler_unit_id IN ? OR current_unit_id IN ?)", filter.AllUnitIDs, filter.AllUnitIDs)
+	} else if filter.AllUnitID != nil {
+		query = query.Where("(handler_unit_id = ? OR current_unit_id = ?)", *filter.AllUnitID, *filter.AllUnitID)
+	}
+	if filter.HandlerUserID != nil {
+		query = query.Where("handler_user_id = ?", *filter.HandlerUserID)
+	}
+	err := query.Order("received_at DESC").Find(&letters).Error
+	return letters, err
 }

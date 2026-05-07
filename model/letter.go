@@ -14,7 +14,6 @@ type Letter struct {
 	CategoryID      *uint       `json:"category_id" gorm:"column:category_id"`
 	Category        *Category   `json:"category,omitempty" gorm:"foreignKey:CategoryID"`
 	Content         string      `json:"content" gorm:"column:content;type:text"`
-	SpecialTags     JSONRaw     `json:"special_tags" gorm:"column:special_tags;type:json"`
 	CurrentUnitID   *uint       `json:"current_unit_id" gorm:"column:current_unit_id"`
 	CurrentUnitObj  *Unit       `json:"current_unit,omitempty" gorm:"foreignKey:CurrentUnitID"`
 	HandlerUserID   *uint       `json:"handler_user_id" gorm:"column:handler_user_id"`
@@ -22,8 +21,9 @@ type Letter struct {
 	CurrentStatus   StatusCode  `json:"current_status" gorm:"column:current_status;type:tinyint"`
 	CurrentOperator string      `json:"current_operator" gorm:"column:current_operator;size:64"`
 	DeadlineAt      *time.Time  `json:"deadline_at" gorm:"column:deadline_at"`
-	CreatedAt       *time.Time  `json:"created_at" gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt       *time.Time  `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
+	FocusID         *uint       `json:"focus_id,omitempty" gorm:"-"`
+	CreatedAt       time.Time   `json:"created_at" gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt       time.Time   `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
 }
 
 func (Letter) TableName() string { return "letters" }
@@ -95,14 +95,24 @@ func (LetterFlow) TableName() string { return "letter_flows" }
 
 // SpecialFocus 专项关注
 type SpecialFocus struct {
-	ID        uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	Name      string    `json:"name" gorm:"column:name;size:128;not null"`
-	Keywords  JSONRaw   `json:"keywords" gorm:"column:keywords;type:json"`
-	CreatedAt time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
+	ID          uint      `json:"id" gorm:"primaryKey;autoIncrement"`
+	Name        string    `json:"name" gorm:"column:tag_name;size:64;not null"`
+	Description string    `json:"description" gorm:"column:description;type:text"`
+	CreatedAt   time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt   time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
 }
 
 func (SpecialFocus) TableName() string { return "special_focuses" }
+
+// LetterSpecialFocus 信件-专项关注绑定关系（中间表）
+type LetterSpecialFocus struct {
+	ID        uint      `json:"id" gorm:"primaryKey;autoIncrement"`
+	LetterNo  string    `json:"letter_no" gorm:"column:letter_no;index;size:64;not null"`
+	FocusID   uint      `json:"focus_id" gorm:"column:focus_id;index;not null"`
+	CreatedAt time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
+}
+
+func (LetterSpecialFocus) TableName() string { return "letter_special_focuses" }
 
 // ──── Channel Code Mapping ────
 
@@ -211,3 +221,18 @@ var LegacyStatusToCode = map[string]StatusCode{
 	"待受理":         StatusCodePreProcess,
 	"市局下发至区县局/支队": StatusCodeCityDispatched,
 }
+
+// OperationLog 操作日志
+type OperationLog struct {
+	ID           uint      `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserID       uint      `json:"user_id" gorm:"column:user_id;index;not null"`
+	UserName     string    `json:"user_name" gorm:"column:user_name;size:64"`
+	PoliceNumber string    `json:"police_number" gorm:"column:police_number;size:32"`
+	Action       string    `json:"action" gorm:"column:action;size:32;not null"`
+	Target       string    `json:"target" gorm:"column:target;size:64;not null"`
+	TargetID     string    `json:"target_id" gorm:"column:target_id;size:64"`
+	Detail       string    `json:"detail" gorm:"column:detail;type:text"`
+	CreatedAt    time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
+}
+
+func (OperationLog) TableName() string { return "operation_logs" }

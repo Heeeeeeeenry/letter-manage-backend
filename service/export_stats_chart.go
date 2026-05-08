@@ -39,7 +39,7 @@ func GenerateStatsChart(dir, periodLabel string, startTime, endTime time.Time,
 	defer f.Close()
 
 	// 获取数据
-	letters, _ := ExportGetLettersInRange(startTime, endTime)
+	letters, _ := ExportGetLettersInRangeCached(startTime, endTime)
 	prevLabel := ""
 	if prevStart != nil {
 		prevLabel = fmt.Sprintf("%d月", prevStart.Month())
@@ -121,17 +121,17 @@ func GenerateStatsChart(dir, periodLabel string, startTime, endTime time.Time,
 	populateAppealDetailSheet(f, "申诉详情", letters)
 	populateCategoryPivotSheet(f, "类别总透视", letters)
 	populateNonRepeatSheet(f, "非重复信件详情", letters)
+	populateSignoffSheet(f, "签收办理", startTime, endTime)
+	populateHardcodedSheets(f)
 
 	f.Save()
 	return dstPath, nil
 }
 
 func detectTemplatePath() string {
-	// 优先使用项目内置模板
+	// 项目内置模板（与二进制同目录部署）
 	paths := []string{
 		"templates/通报数图统计_模板.xlsx",
-		"/Users/liheng/Desktop/pic/origin/2026年3月通报数图统计.xlsx",
-		"/Users/v_liheng02/Desktop/other/局长信箱原始资料/2026年3月通报数图统计.xlsx",
 	}
 	for _, p := range paths {
 		if _, err := os.Stat(p); err == nil {
@@ -160,7 +160,7 @@ func getPrevLetters(prevStart, prevEnd *time.Time) ([]model.Letter, error) {
 	if prevStart == nil || prevEnd == nil {
 		return nil, nil
 	}
-	return ExportGetLettersInRange(*prevStart, *prevEnd)
+	return ExportGetLettersInRangeCached(*prevStart, *prevEnd)
 }
 
 func prevStartOrNow(t *time.Time) time.Time {
@@ -180,7 +180,7 @@ func prevEndOrNow(t *time.Time) time.Time {
 // ─── 数据填充函数（基于模板的坐标写入数据） ───
 
 // populateOverviewSheet 填充总览Sheet数据
-// 模板结构: R1=标题, R2/R3/R4=表头, R5+=数据行（按Level2排序）
+// 模板结构: R1=标题(本月/上月), R2/R3/R4=表头, R5+=数据行, 最后一行=总量
 func populateOverviewSheet(f *excelize.File, sheet string, cross []UnitCategoryStats,
 	prevCrossMap map[string]UnitCategoryStats, prevLabel string) {
 
@@ -188,32 +188,34 @@ func populateOverviewSheet(f *excelize.File, sheet string, cross []UnitCategoryS
 		return
 	}
 
-	// 获取模板中的行数，从第5行开始写数据，覆盖现有数据
-	// 先找到模板中最后一行的行号
 	rows, _ := f.GetRows(sheet)
-	dataStartRow := 5 // 数据从第5行开始
+	dataStartRow := 5 // 数据从第5行开始（模板第4行已有"分县局"标签，无需修改）
 	totalRows := len(rows)
 
-	// 清除旧数据（从第5行到最后一行数据行）
-	for r := dataStartRow; r <= totalRows; r++ {
+	// 清除旧数据（第5行到倒数第2行）
+	for r := dataStartRow; r < totalRows; r++ {
 		for c := 1; c <= 34; c++ {
 			col, _ := excelize.ColumnNumberToName(c)
-			// 跳过标题行和空行
-			if r <= 4 {
-				continue
-			}
 			cell := fmt.Sprintf("%s%d", col, r)
 			f.SetCellValue(sheet, cell, "")
 		}
 	}
 
-	// 写入新数据
+	// 写入单位数据行
 	r := dataStartRow
+	var totals UnitCategoryStats
+	totals.UnitName = "有效\n总量"
+
 	for _, row := range cross {
 		if row.UnitName == "有效\n总量" {
-			continue // 总量行后面单独处理
+			totals = row
+			continue
 		}
+		// 序号
+		writeCell(f, sheet, 1, r, r-dataStartRow+1)
+		// 单位名
 		writeCell(f, sheet, 2, r, row.UnitName)
+		// 按类别分布（列3-9）
 		writeCell(f, sheet, 3, r, row.Complaint)
 		writeCell(f, sheet, 4, r, row.Report)
 		writeCell(f, sheet, 5, r, row.Suggestion)
@@ -221,11 +223,13 @@ func populateOverviewSheet(f *excelize.File, sheet string, cross []UnitCategoryS
 		writeCell(f, sheet, 7, r, row.Appeal)
 		writeCell(f, sheet, 8, r, row.Help)
 		writeCell(f, sheet, 9, r, row.Thank)
+		// 按来源渠道分布（列10-14）
 		writeCell(f, sheet, 10, r, row.DirectorMail)
 		writeCell(f, sheet, 11, r, row.Sub12389)
 		writeCell(f, sheet, 12, r, row.VisitBJ)
 		writeCell(f, sheet, 13, r, row.WorkOrder)
 		writeCell(f, sheet, 14, r, row.PoliceDesk)
+		// 合计（列15）
 		writeCell(f, sheet, 15, r, row.Total)
 
 		// 上月数据（列17-29）
@@ -236,14 +240,40 @@ func populateOverviewSheet(f *excelize.File, sheet string, cross []UnitCategoryS
 			writeCell(f, sheet, 20, r, prev.Suggestion)
 			writeCell(f, sheet, 21, r, prev.Consult)
 			writeCell(f, sheet, 22, r, prev.Appeal)
-			writeCell(f, sheet, 23, r, prev.DirectorMail)
-			writeCell(f, sheet, 24, r, prev.Sub12389)
-			writeCell(f, sheet, 25, r, prev.VisitBJ)
-			writeCell(f, sheet, 26, r, prev.WorkOrder)
-			writeCell(f, sheet, 27, r, prev.PoliceDesk)
-			writeCell(f, sheet, 28, r, prev.Total)
+			writeCell(f, sheet, 23, r, prev.Help)
+			writeCell(f, sheet, 24, r, prev.Thank)
+			writeCell(f, sheet, 25, r, prev.DirectorMail)
+			writeCell(f, sheet, 26, r, prev.Sub12389)
+			writeCell(f, sheet, 27, r, prev.VisitBJ)
+			writeCell(f, sheet, 28, r, prev.WorkOrder)
+			writeCell(f, sheet, 29, r, prev.PoliceDesk)
 		}
 		r++
+	}
+
+	// 写入总量行（最后一行）
+	totalRow := totalRows
+	writeCell(f, sheet, 2, totalRow, totals.UnitName)
+	writeCell(f, sheet, 3, totalRow, totals.Complaint)
+	writeCell(f, sheet, 4, totalRow, totals.Report)
+	writeCell(f, sheet, 5, totalRow, totals.Suggestion)
+	writeCell(f, sheet, 6, totalRow, totals.Consult)
+	writeCell(f, sheet, 7, totalRow, totals.Appeal)
+	writeCell(f, sheet, 8, totalRow, totals.Help)
+	writeCell(f, sheet, 9, totalRow, totals.Thank)
+	writeCell(f, sheet, 10, totalRow, totals.DirectorMail)
+	writeCell(f, sheet, 11, totalRow, totals.Sub12389)
+	writeCell(f, sheet, 12, totalRow, totals.VisitBJ)
+	writeCell(f, sheet, 13, totalRow, totals.WorkOrder)
+	writeCell(f, sheet, 14, totalRow, totals.PoliceDesk)
+	writeCell(f, sheet, 15, totalRow, totals.Total)
+
+	// 清除环比变化列（30-34：模板残留的旧数据，无法自动计算）
+	for c := 30; c <= 34; c++ {
+		col, _ := excelize.ColumnNumberToName(c)
+		for r := dataStartRow; r <= totalRows; r++ {
+			f.SetCellValue(sheet, fmt.Sprintf("%s%d", col, r), "")
+		}
 	}
 }
 
@@ -1025,6 +1055,49 @@ func populateNonRepeatSheet(f *excelize.File, sheet string, letters []model.Lett
 			writeCell(f, sheet, ci, r, PlaceholderNoData)
 		}
 		r++
+	}
+}
+
+// populateSignoffSheet 填充签收办理 sheet（从 letter_signoffs 表读取真实数据）
+func populateSignoffSheet(f *excelize.File, sheet string, startTime, endTime time.Time) {
+	signoffs := ExportGetSignoffRows(startTime, endTime)
+	if len(signoffs) == 0 {
+		// 无签收数据时清空模板僵数据
+		clearSheetData(f, sheet, 3, 13)
+		return
+	}
+	clearSheetData(f, sheet, 3, 13)
+	r := 3
+	for _, so := range signoffs {
+		writeCell(f, sheet, 1, r, so.LetterNo)
+		writeCell(f, sheet, 2, r, so.CountyName)
+		writeCell(f, sheet, 3, r, so.UnitName)
+		writeCell(f, sheet, 4, r, so.Duration)
+		writeCell(f, sheet, 5, r, so.Action)
+		r++
+	}
+}
+
+// populateHardcodedSheets 清除无法自动填充的模板僵数据
+func populateHardcodedSheets(f *excelize.File) {
+	// 「回访满意率」- 清除模板硬编码样本数据
+	clearSheetData(f, "回访满意率", 2, 8)
+	// 「各县民警底数」- 保留标题行，清除数据行
+	clearSheetData(f, "各县民警底数", 2, 4)
+	// 「推广注册率」- 清除模板样本
+	clearSheetData(f, "推广注册率", 3, 13)
+	// 「实质解决」- 清除模板样本
+	clearSheetData(f, "实质解决", 2, 6)
+}
+
+// clearSheetData 清除 sheet 中指定行列范围的数据
+func clearSheetData(f *excelize.File, sheet string, startRow, maxCol int) {
+	rows, _ := f.GetRows(sheet)
+	for r := startRow; r <= len(rows); r++ {
+		for c := 1; c <= maxCol; c++ {
+			col, _ := excelize.ColumnNumberToName(c)
+			f.SetCellValue(sheet, fmt.Sprintf("%s%d", col, r), "")
+		}
 	}
 }
 

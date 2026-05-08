@@ -1,12 +1,55 @@
 package service
 
 import (
+	"fmt"
+	"sync"
 	"time"
 
 	"letter-manage-backend/dao"
 	"letter-manage-backend/model"
 
 )
+
+// ─── 请求级缓存：避免同一导出请求内重复查询 letters ───
+
+var (
+	exportLettersCache    []model.Letter
+	exportLettersCacheKey string
+	exportCacheMu         sync.Mutex
+)
+
+// FlushExportCache 清空导出缓存（每次导出完成后调用）
+func FlushExportCache() {
+	exportCacheMu.Lock()
+	defer exportCacheMu.Unlock()
+	exportLettersCache = nil
+	exportLettersCacheKey = ""
+}
+
+// ExportGetLettersInRangeCached 带缓存的版本：同一时间范围内只查一次
+func ExportGetLettersInRangeCached(startTime, endTime time.Time) ([]model.Letter, error) {
+	key := fmt.Sprintf("%d-%d", startTime.Unix(), endTime.Unix())
+
+	exportCacheMu.Lock()
+	if key == exportLettersCacheKey && exportLettersCache != nil {
+		cached := exportLettersCache
+		exportCacheMu.Unlock()
+		return cached, nil
+	}
+	exportCacheMu.Unlock()
+
+	letters, err := ExportGetLettersInRange(startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+
+	exportCacheMu.Lock()
+	exportLettersCache = letters
+	exportLettersCacheKey = key
+	exportCacheMu.Unlock()
+
+	return letters, nil
+}
 
 // ─── 公共查询结构 ───
 
@@ -211,7 +254,7 @@ func ExportGetUnitLevel1Stats(startTime, endTime time.Time) []LetterStatsRow {
 
 // ExportGetUnitCategoryCross 单位×类别交叉统计（总览表用）
 func ExportGetUnitCategoryCross(startTime, endTime time.Time) []UnitCategoryStats {
-	letters, err := ExportGetLettersInRange(startTime, endTime)
+	letters, err := ExportGetLettersInRangeCached(startTime, endTime)
 	if err != nil || len(letters) == 0 {
 		return nil
 	}
@@ -314,7 +357,7 @@ func ExportGetUnitCategoryCross(startTime, endTime time.Time) []UnitCategoryStat
 
 // ExportGetTeamStats 基层所队统计
 func ExportGetTeamStats(startTime, endTime time.Time) []TeamStats {
-	letters, err := ExportGetLettersInRange(startTime, endTime)
+	letters, err := ExportGetLettersInRangeCached(startTime, endTime)
 	if err != nil || len(letters) == 0 {
 		return nil
 	}
@@ -655,7 +698,7 @@ type CatDetailResult struct {
 // ExportGetCategoryDetail 获取指定大类下各单位细类统计
 // catL1: 大类名称如"投诉举报类"、"意见建议类"、"申诉类"等
 func ExportGetCategoryDetail(startTime, endTime time.Time, catL1 string) []CatDetailResult {
-	letters, _ := ExportGetLettersInRange(startTime, endTime)
+	letters, _ := ExportGetLettersInRangeCached(startTime, endTime)
 
 	type key struct {
 		unit  string
@@ -698,7 +741,7 @@ func ExportGetCategoryDetail(startTime, endTime time.Time, catL1 string) []CatDe
 
 // ExportGetTeamCategoryDetail 获取指定大类下各所队细类统计
 func ExportGetTeamCategoryDetail(startTime, endTime time.Time, catL1 string) []CatDetailResult {
-	letters, _ := ExportGetLettersInRange(startTime, endTime)
+	letters, _ := ExportGetLettersInRangeCached(startTime, endTime)
 
 	type key struct {
 		team  string
@@ -743,7 +786,7 @@ func ExportGetTeamCategoryDetail(startTime, endTime time.Time, catL1 string) []C
 
 // ExportGetRepeatStats 重复件统计（按所队+分县局）
 func ExportGetRepeatStats(startTime, endTime time.Time) []RepeatStats {
-	letters, _ := ExportGetLettersInRange(startTime, endTime)
+	letters, _ := ExportGetLettersInRangeCached(startTime, endTime)
 
 	// Group by citizen name/phone to find repeats
 	type repeatKey struct {

@@ -340,11 +340,21 @@ func genPDFStub(dir, yearMonth, reportType string) (string, error) {
 // ─── 4. 分类标准复制 ───
 
 func copyClassificationStandard(dir string) (string, error) {
-	src := "/Users/v_liheng02/Desktop/other/局长信箱原始资料/20260310全平台数据分类标准.xlsx"
-	dst := filepath.Join(dir, "20260310全平台数据分类标准.xlsx")
-	if _, err := os.Stat(src); os.IsNotExist(err) {
+	// 查找分类标准文件（可选）
+	src := ""
+	for _, p := range []string{
+		"templates/20260310全平台数据分类标准.xlsx",
+		filepath.Join(dir, "20260310全平台数据分类标准.xlsx"),
+	} {
+		if _, err := os.Stat(p); err == nil {
+			src = p
+			break
+		}
+	}
+	if src == "" {
 		return genEmptyExcel(dir, "20260310全平台数据分类标准.xlsx")
 	}
+	dst := filepath.Join(dir, "20260310全平台数据分类标准.xlsx")
 	s, err := os.Open(src)
 	if err != nil {
 		return "", err

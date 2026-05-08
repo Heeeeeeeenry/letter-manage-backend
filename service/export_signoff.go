@@ -8,26 +8,9 @@ import (
 	"letter-manage-backend/model"
 )
 
-// ─── LetterSignoff 签收数据结构 ───
-
-// LetterSignoff 信件的签收/办理/退回记录
-type LetterSignoff struct {
-	ID            uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	LetterNo      string    `json:"letter_no" gorm:"column:letter_no;index:idx_signoff_letter_no;size:64;not null"`
-	Action        string    `json:"action" gorm:"column:action;size:32;not null"`     // dispatch / return_letter / handle_by_self / 市局下发 / submit_processing / 办案单位反馈
-	FromUnit      string    `json:"from_unit" gorm:"column:from_unit;size:256"`       // 来源单位
-	ToUnit        string    `json:"to_unit" gorm:"column:to_unit;size:256"`           // 目标单位
-	Operator      string    `json:"operator" gorm:"column:operator;size:64"`          // 操作人
-	OperatorID    uint      `json:"operator_id" gorm:"column:operator_id"`            // 操作人ID
-	PrevStatus    string    `json:"prev_status" gorm:"column:prev_status;size:64"`    // 操作前状态
-	CurrentStatus string    `json:"current_status" gorm:"column:current_status;size:64"` // 操作后状态/当前状态
-	Remark        string    `json:"remark" gorm:"column:remark;type:text"`            // 备注
-	RecordedAt    time.Time `json:"recorded_at" gorm:"column:recorded_at"`            // 操作时间
-	CreatedAt     time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
-}
-
-// TableName 表名
-func (LetterSignoff) TableName() string { return "letter_signoffs" }
+// ─── LetterSignoff 签收数据结构（已移至 model 包） ───
+// 类型别名：service.LetterSignoff = model.LetterSignoff
+type LetterSignoff = model.LetterSignoff
 
 // ─── 数据库迁移 ───
 
@@ -179,6 +162,40 @@ func GetSignoffsByLetterNo(letterNo string) ([]LetterSignoff, error) {
 		Order("recorded_at ASC").
 		Find(&signoffs).Error
 	return signoffs, err
+}
+
+// SignoffRow 签收办理 sheet 的一行数据
+type SignoffRow struct {
+	LetterNo   string
+	CountyName string
+	UnitName   string
+	Duration   string
+	Action     string
+}
+
+// ExportGetSignoffRows 获取签收记录（供导出 signoff sheet 用）
+func ExportGetSignoffRows(startTime, endTime time.Time) []SignoffRow {
+	var signoffs []LetterSignoff
+	dao.DB.Where("recorded_at >= ? AND recorded_at < ?", startTime, endTime).
+		Order("recorded_at DESC").
+		Limit(200).
+		Find(&signoffs)
+
+	var rows []SignoffRow
+	for _, so := range signoffs {
+		row := SignoffRow{
+			LetterNo:   so.LetterNo,
+			CountyName: so.FromUnit,
+			UnitName:   so.ToUnit,
+			Action:     so.Action,
+		}
+		// 计算时长
+		if !so.RecordedAt.IsZero() {
+			row.Duration = so.RecordedAt.Format("01-02 15:04")
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 // GetSignoffStats 获取签收统计（导出用）

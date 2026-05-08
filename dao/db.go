@@ -53,5 +53,6 @@ func AutoMigrate() error {
 		&model.SpecialFocus{},
 		&model.LetterSpecialFocus{},
 		&model.OperationLog{},
+		&model.LetterSignoff{},
 	)
 }

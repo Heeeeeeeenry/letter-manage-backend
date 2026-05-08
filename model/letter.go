@@ -236,3 +236,21 @@ type OperationLog struct {
 }
 
 func (OperationLog) TableName() string { return "operation_logs" }
+
+// LetterSignoff 信件的签收/办理/退回记录（letter_signoffs 表）
+type LetterSignoff struct {
+	ID            uint      `json:"id" gorm:"primaryKey;autoIncrement"`
+	LetterNo      string    `json:"letter_no" gorm:"column:letter_no;index:idx_signoff_letter_no;size:64;not null"`
+	Action        string    `json:"action" gorm:"column:action;size:32;not null"`
+	FromUnit      string    `json:"from_unit" gorm:"column:from_unit;size:256"`
+	ToUnit        string    `json:"to_unit" gorm:"column:to_unit;size:256"`
+	Operator      string    `json:"operator" gorm:"column:operator;size:64"`
+	OperatorID    uint      `json:"operator_id" gorm:"column:operator_id"`
+	PrevStatus    string    `json:"prev_status" gorm:"column:prev_status;size:64"`
+	CurrentStatus string    `json:"current_status" gorm:"column:current_status;size:64"`
+	Remark        string    `json:"remark" gorm:"column:remark;type:text"`
+	RecordedAt    time.Time `json:"recorded_at" gorm:"column:recorded_at"`
+	CreatedAt     time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
+}
+
+func (LetterSignoff) TableName() string { return "letter_signoffs" }

@@ -16,6 +16,9 @@ type namedFile struct {
 
 // GenerateFullExport 生成完整的月度导出ZIP包
 func GenerateFullExport(permLevel string, unitID *uint, period string) (string, []ExportDataGap, error) {
+	// 请求结束时清空缓存，避免跨请求数据混用
+	defer FlushExportCache()
+
 	now := time.Now()
 	startTime, endTime, periodLabel := calcPeriod(period, now)
 
@@ -49,15 +52,12 @@ func GenerateFullExport(permLevel string, unitID *uint, period string) (string, 
 	files = append(files, namedFile{Filename: FormatStatsChartFilename(periodLabel), Path: chartPath})
 
 	pdfConverted := false
-	if LibreOfficeAvailable() {
-		bulletinPath, err := ConvertXLSXToPDF(summaryPath)
+	if PDFConversionAvailable() {
+		reports, err := GenerateReportPDFs(summaryPath, chartPath, startTime, endTime, periodLabel, tmpDir)
 		if err == nil {
-			files = append(files, namedFile{Filename: FormatBulletinFilename(periodLabel), Path: bulletinPath})
+			files = append(files, namedFile{Filename: FormatBulletinFilename(periodLabel), Path: reports.Bulletin})
+			files = append(files, namedFile{Filename: FormatAnalysisFilename(periodLabel), Path: reports.Quality})
 			pdfConverted = true
-		}
-		analysisPath, err := ConvertXLSXToPDF(chartPath)
-		if err == nil {
-			files = append(files, namedFile{Filename: FormatAnalysisFilename(periodLabel), Path: analysisPath})
 		}
 	}
 
@@ -66,7 +66,7 @@ func GenerateFullExport(permLevel string, unitID *uint, period string) (string, 
 			Field:    "PDF转换",
 			Affected: "通报.pdf / 质态分析报告.pdf",
 			Status:   "empty",
-			Advice:   "需要安装 LibreOffice 才能将xlsx转换为PDF。安装命令: brew install --cask libreoffice",
+			Advice:   "需 LibreOffice (brew install --cask libreoffice) 或 Python openpyxl+reportlab 来生成 PDF。",
 		})
 	}
 

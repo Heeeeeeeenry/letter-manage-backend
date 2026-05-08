@@ -17,7 +17,7 @@ func GenerateDataSummary(dir, periodLabel string, startTime, endTime time.Time) 
 	defer f.Close()
 
 	// ─── Sheet 1: 信箱（局长信箱渠道） ───
-	allLetters, _ := ExportGetLettersInRange(startTime, endTime)
+	allLetters, _ := ExportGetLettersInRangeCached(startTime, endTime)
 
 	// 按渠道分组
 	var mailboxLetters []model.Letter   // 局长信箱
@@ -309,7 +309,7 @@ type dailyAgg struct {
 }
 
 func aggregateDailyStats(startTime, endTime time.Time) []dailyAgg {
-	letters, _ := ExportGetLettersInRange(startTime, endTime)
+	letters, _ := ExportGetLettersInRangeCached(startTime, endTime)
 	dayMap := make(map[string]*dailyAgg)
 
 	// 构建日期列表
@@ -322,22 +322,26 @@ func aggregateDailyStats(startTime, endTime time.Time) []dailyAgg {
 
 	for _, l := range letters {
 		dateStr := l.ReceivedAt.Format("2006-01-02")
-		if d, ok := dayMap[dateStr]; ok {
+		d, ok := dayMap[dateStr]
+		if !ok {
+			continue
+		}
+		switch l.Channel {
+		case 1, model.ChannelDirectorMail: // 市民上报、局长信箱 → 局长信箱列
 			d.directorTotal++
 			d.directorValid++
-			switch l.Channel {
-			case model.ChannelDirectorMail:
-				d.directorTotal++
-			case 10:
-				d.workOrderTotal++
-				d.workOrderValid++
-			case 11:
-				d.selfTotal++
-				d.selfValid++
-			case 8:
-				d.sub12389++
-			}
-			d.petitionTotal++
+		case 10: // 12345工单
+			d.workOrderTotal++
+			d.workOrderValid++
+		case 11: // 12345公安专席 → 12345自接列
+			d.selfTotal++
+			d.selfValid++
+		case 8: // 12389子系统
+			d.sub12389++
+		}
+		// 所有来信都计入信访件和局长收信
+		d.petitionTotal++
+		if l.Channel == model.ChannelDirectorMail || l.Channel == 1 {
 			d.chiefTotal++
 			d.chiefValid++
 		}

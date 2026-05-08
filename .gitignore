@@ -6,3 +6,6 @@ letter-manage-backend
 media/
 server
 *.ttf
+*.bak
+__pycache__/
+cmd/

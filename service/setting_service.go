@@ -509,18 +509,21 @@ func UpdateDispatchPermission(args map[string]interface{}) error {
 	if err != nil {
 		return err
 	}
-	// 如果传了 unit_id，通过 ID 查找单位名
+	// 如果传了 unit_id，通过 ID 更新单位名
 	if v, ok := args["unit_id"].(float64); ok {
 		u := uint(v)
 		unit, err := dao.GetUnitByID(u)
 		if err == nil && unit != nil {
 			perm.UnitID = &u
-			perm.UnitName = unit.Level3
-			if perm.UnitName == "" {
-				perm.UnitName = unit.Level2
-			}
-			if perm.UnitName == "" {
-				perm.UnitName = unit.Level1
+			perm.UnitName = pickUnitName(unit)
+		}
+	}
+	if perm.UnitName == "" {
+		if v, ok := args["unit_name"].(string); ok && v != "" {
+			perm.UnitName = v
+			u, err := dao.GetUnitByFullName(v)
+			if err == nil && u != nil {
+				perm.UnitID = &u.ID
 			}
 		}
 	}

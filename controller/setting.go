@@ -273,8 +273,8 @@ func SettingController(c *gin.Context) {
 					oldUnitID = *oldUser.UnitID
 				}
 				if newUnitID != oldUnitID {
-					oldName := dao.GetUnitNameByID(&oldUnitID)
-					newName := dao.GetUnitNameByID(&newUnitID)
+					oldName := dao.GetUnitFullNameByID(&oldUnitID)
+					newName := dao.GetUnitFullNameByID(&newUnitID)
 					parts = append(parts, fmt.Sprintf("所属单位从%s改为%s", oldName, newName))
 				}
 			}

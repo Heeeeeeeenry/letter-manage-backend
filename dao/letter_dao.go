@@ -623,7 +623,7 @@ func GetDispatchList(unitID *uint, permLevel string, page, pageSize int) ([]mode
 	}
 	offset := (page - 1) * pageSize
 	var letters []model.Letter
-	err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
+	err := query.Order("updated_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
 	return letters, total, err
 }
 

@@ -136,6 +136,10 @@ var ChannelToName = map[ChannelCode]string{
 	ChannelMail:          "信件",
 	ChannelWeb:           "网络",
 	ChannelOther:         "其他",
+	8:                    "12345热线",
+	9:                    "12389举报",
+	10:                   "网上信访",
+	11:                   "上级交办",
 }
 
 var ChannelNameToCode = map[string]ChannelCode{
@@ -146,6 +150,10 @@ var ChannelNameToCode = map[string]ChannelCode{
 	"信件":   ChannelMail,
 	"网络":   ChannelWeb,
 	"其他":   ChannelOther,
+	"12345热线": 8,
+	"12389举报": 9,
+	"网上信访": 10,
+	"上级交办": 11,
 }
 
 // ──── Status Code Mapping ────

@@ -266,6 +266,18 @@ func SettingController(c *gin.Context) {
 			if newPL, ok := req.Args["permission_level"].(string); ok && newPL != string(oldUser.PermissionLevel) {
 				parts = append(parts, fmt.Sprintf("权限级别从%s改为%s", oldUser.PermissionLevel, newPL))
 			}
+			if v, ok := req.Args["unit_id"].(float64); ok {
+				newUnitID := uint(v)
+				oldUnitID := uint(0)
+				if oldUser.UnitID != nil {
+					oldUnitID = *oldUser.UnitID
+				}
+				if newUnitID != oldUnitID {
+					oldName := dao.GetUnitNameByID(&oldUnitID)
+					newName := dao.GetUnitNameByID(&newUnitID)
+					parts = append(parts, fmt.Sprintf("所属单位从%s改为%s", oldName, newName))
+				}
+			}
 			if v, ok := req.Args["is_admin"]; ok {
 				newAdmin, _ := v.(bool)
 				if newAdmin != oldUser.IsAdmin {

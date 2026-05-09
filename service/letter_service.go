@@ -1413,6 +1413,8 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 		"趋势":     map[string]interface{}{"dates": trendDates, "values": trendValues},
 		"分类统计":   map[string]interface{}{"categories": categories, "values": catValues},
 		"来源分布":   sourceDistribution,
+		// 环比对比（暂不计算，前端显示-）
+		"comparison": nil,
 		// 保留原始数据以备后用
 		"status_stats":  statusStats,
 		"channel_stats": channelStats,

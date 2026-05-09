@@ -735,21 +735,15 @@ func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string, args
 				}
 			}
 		}
-		// fallback to string-based check
-		units, err := dao.GetAllUnits()
-		if err != nil {
-			return false, err
-		}
-		for _, u := range units {
-			if operator.UnitID != nil && u.ID == *operator.UnitID {
-				fullName := u.Level1
-				if u.Level2 != "" {
-					fullName = u.Level2
-				}
-				if u.Level3 != "" {
-					fullName = u.Level3
-				}
-				if fullName == targetUnit {
+		// fallback to string-based check — 仅允许下发到同分局单位
+		opUnit, _ := dao.GetUnitByID(*operator.UnitID)
+		if opUnit != nil {
+			// 解析 targetUnit: 可能是短名(Level3)或全路径
+			targetUnits := dao.UnitNameToIDs(targetUnit)
+			for _, tid := range targetUnits {
+				tu, err := dao.GetUnitByID(tid)
+				if err == nil && tu != nil &&
+					tu.Level1 == opUnit.Level1 && tu.Level2 == opUnit.Level2 {
 					return true, nil
 				}
 			}

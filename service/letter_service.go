@@ -758,8 +758,8 @@ func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string, args
 	default:
 		// check dispatch_permissions table - try unitID first
 		if operator.UnitID != nil {
-			perm, err := dao.GetDispatchPermissionByUnitID(*operator.UnitID)
-			if err == nil && perm != nil {
+			perm, _ := dao.GetDispatchPermissionByUnitID(*operator.UnitID)
+			if perm != nil {
 				var scope []string
 				if err := json.Unmarshal([]byte(perm.CanDispatchTo), &scope); err == nil {
 					for _, s := range scope {
@@ -770,21 +770,19 @@ func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string, args
 				}
 			}
 		}
-		// fallback to string-based check
-		perm, err := dao.GetDispatchPermissionByUnitID(*operator.UnitID)
-		if err != nil {
-			return false, err
-		}
-		if perm == nil {
-			return false, nil
-		}
-		var scope []string
-		if err := json.Unmarshal([]byte(perm.CanDispatchTo), &scope); err != nil {
-			return false, nil
-		}
-		for _, s := range scope {
-			if s == targetUnit {
-				return true, nil
+		// 无下发权限配置：民意智感中心默认可下发到同级单位
+		opUnitName := dao.GetUnitNameByID(operator.UnitID)
+		if opUnitName == "民意智感中心" && operator.UnitID != nil {
+			opUnit, _ := dao.GetUnitByID(*operator.UnitID)
+			if opUnit != nil {
+				targetUnits := dao.UnitNameToIDs(targetUnit)
+				for _, tid := range targetUnits {
+					tu, err := dao.GetUnitByID(tid)
+					if err == nil && tu != nil &&
+						tu.Level1 == opUnit.Level1 && tu.Level2 == opUnit.Level2 {
+						return true, nil
+					}
+				}
 			}
 		}
 		return false, nil

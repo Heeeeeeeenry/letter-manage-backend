@@ -148,9 +148,13 @@ func GetUnitsWithFilter(args map[string]interface{}) (map[string]interface{}, er
 	if v, ok := args["filter_level2"].(string); ok {
 		filterLevel2 = v
 	}
+	filterLevel3 := ""
+	if v, ok := args["filter_level3"].(string); ok {
+		filterLevel3 = v
+	}
 
 	// 调用 DAO
-	units, total, err := dao.GetUnitsWithFilter(page, pageSize, searchKeyword, filterLevel1, filterLevel2)
+	units, total, err := dao.GetUnitsWithFilter(page, pageSize, searchKeyword, filterLevel1, filterLevel2, filterLevel3)
 	if err != nil {
 		return nil, err
 	}

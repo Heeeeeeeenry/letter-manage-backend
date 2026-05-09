@@ -210,7 +210,7 @@ func GetAllUnits() ([]model.Unit, error) {
 }
 
 // GetUnitsWithFilter 获取单位列表，支持分页和筛选
-func GetUnitsWithFilter(page, pageSize int, searchKeyword, filterLevel1, filterLevel2 string) ([]model.Unit, int64, error) {
+func GetUnitsWithFilter(page, pageSize int, searchKeyword, filterLevel1, filterLevel2, filterLevel3 string) ([]model.Unit, int64, error) {
 	var units []model.Unit
 	var total int64
 
@@ -230,6 +230,11 @@ func GetUnitsWithFilter(page, pageSize int, searchKeyword, filterLevel1, filterL
 	// 二级单位筛选
 	if filterLevel2 != "" {
 		query = query.Where("level2 = ?", filterLevel2)
+	}
+
+	// 三级单位筛选
+	if filterLevel3 != "" {
+		query = query.Where("level3 = ?", filterLevel3)
 	}
 
 	// 计算总数

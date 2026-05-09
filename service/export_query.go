@@ -2,12 +2,12 @@ package service
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
 	"letter-manage-backend/dao"
 	"letter-manage-backend/model"
-
 )
 
 // ─── 请求级缓存：避免同一导出请求内重复查询 letters ───
@@ -157,18 +157,25 @@ type AppealDist struct {
 
 // ─── 查询函数 ───
 
-// ExportGetLettersInRange 获取时间范围内所有信件（预加载Category和Unit）
+// ExportGetLettersInRange 获取时间范围内所有信件（Joins加载Category和Unit，单条SQL）
 func ExportGetLettersInRange(startTime, endTime time.Time) ([]model.Letter, error) {
 	var letters []model.Letter
-	err := dao.DB.Preload("Category").Preload("CurrentUnitObj").
-		Where("received_at >= ? AND received_at < ?", startTime, endTime).
-		Order("received_at DESC").
+	err := dao.DB.
+		Joins("LEFT JOIN categories ON categories.id = letters.category_id").
+		Joins("LEFT JOIN units ON units.id = letters.current_unit_id").
+		Where("letters.received_at >= ? AND letters.received_at < ?", startTime, endTime).
+		Order("letters.received_at DESC").
 		Find(&letters).Error
 	return letters, err
 }
 
-// ExportCountLettersInRange 统计时间范围内信件总数
+// ExportCountLettersInRange 统计时间范围内信件总数（优先从缓存取，避免额外DB查询）
 func ExportCountLettersInRange(startTime, endTime time.Time) int64 {
+	// 尝试从缓存获取
+	if letters, _ := ExportGetLettersInRangeCached(startTime, endTime); letters != nil {
+		return int64(len(letters))
+	}
+	// 缓存未命中，回退到DB COUNT
 	var count int64
 	dao.DB.Model(&model.Letter{}).
 		Where("received_at >= ? AND received_at < ?", startTime, endTime).
@@ -176,80 +183,86 @@ func ExportCountLettersInRange(startTime, endTime time.Time) int64 {
 	return count
 }
 
-// ExportGetCategoryStats 按分类统计
+// ExportGetCategoryStats 按分类统计（从缓存内存计算）
 func ExportGetCategoryStats(startTime, endTime time.Time) []LetterStatsRow {
-	var results []LetterStatsRow
-	dao.DB.Model(&model.Letter{}).
-		Select("COALESCE(categories.level1, '未分类') as name, count(*) as count").
-		Joins("LEFT JOIN categories ON categories.id = letters.category_id").
-		Where("received_at >= ? AND received_at < ?", startTime, endTime).
-		Group("categories.level1").
-		Order("count DESC").
-		Scan(&results)
-	return results
+	letters, _ := ExportGetLettersInRangeCached(startTime, endTime)
+	if len(letters) == 0 {
+		return nil
+	}
+	catMap := make(map[string]int)
+	for _, l := range letters {
+		name := "未分类"
+		if l.Category != nil && l.Category.Level1 != "" {
+			name = l.Category.Level1
+		}
+		catMap[name]++
+	}
+	return sortStatsMap(catMap)
 }
 
-// ExportGetChannelStats 按渠道统计
+// ExportGetChannelStats 按渠道统计（从缓存内存计算）
 func ExportGetChannelStats(startTime, endTime time.Time) []LetterStatsRow {
-	var results []LetterStatsRow
-	rows, _ := dao.DB.Model(&model.Letter{}).
-		Select("channel, count(*) as count").
-		Where("received_at >= ? AND received_at < ?", startTime, endTime).
-		Group("channel").
-		Order("count DESC").
-		Rows()
-	if rows != nil {
-		defer rows.Close()
-		for rows.Next() {
-			var ch int
-			var cnt int
-			rows.Scan(&ch, &cnt)
-			name := model.ChannelToName[model.ChannelCode(ch)]
-			if name == "" {
-				name = "未知渠道"
-			}
-			results = append(results, LetterStatsRow{Name: name, Count: cnt})
-		}
+	letters, _ := ExportGetLettersInRangeCached(startTime, endTime)
+	if len(letters) == 0 {
+		return nil
 	}
-	return results
+	chMap := make(map[string]int)
+	for _, l := range letters {
+		name := model.ChannelToName[l.Channel]
+		if name == "" {
+			name = "未知渠道"
+		}
+		chMap[name]++
+	}
+	return sortStatsMap(chMap)
 }
 
-// ExportGetStatusStats 按状态统计
+// ExportGetStatusStats 按状态统计（从缓存内存计算）
 func ExportGetStatusStats(startTime, endTime time.Time) []LetterStatsRow {
-	var results []LetterStatsRow
-	rows, _ := dao.DB.Model(&model.Letter{}).
-		Select("current_status, count(*) as count").
-		Where("received_at >= ? AND received_at < ?", startTime, endTime).
-		Group("current_status").
-		Order("current_status").
-		Rows()
-	if rows != nil {
-		defer rows.Close()
-		for rows.Next() {
-			var st int
-			var cnt int
-			rows.Scan(&st, &cnt)
-			name := model.StatusCodeToName[model.StatusCode(st)]
-			if name == "" {
-				name = "未知状态"
-			}
-			results = append(results, LetterStatsRow{Name: name, Count: cnt})
-		}
+	letters, _ := ExportGetLettersInRangeCached(startTime, endTime)
+	if len(letters) == 0 {
+		return nil
 	}
-	return results
+	stMap := make(map[string]int)
+	for _, l := range letters {
+		name := model.StatusCodeToName[l.CurrentStatus]
+		if name == "" {
+			name = "未知状态"
+		}
+		stMap[name]++
+	}
+	return sortStatsMap(stMap)
 }
 
-// ExportGetUnitLevel1Stats 按分县局（unit level1）统计
+// ExportGetUnitLevel1Stats 按分县局统计（从缓存内存计算）
 func ExportGetUnitLevel1Stats(startTime, endTime time.Time) []LetterStatsRow {
-	var results []LetterStatsRow
-	dao.DB.Model(&model.Letter{}).
-		Select("COALESCE(units.level2, units.level1, '未知单位') as name, count(*) as count").
-		Joins("LEFT JOIN units ON units.id = letters.current_unit_id").
-		Where("received_at >= ? AND received_at < ?", startTime, endTime).
-		Group("units.level2, units.level1").
-		Order("count DESC").
-		Scan(&results)
-	return results
+	letters, _ := ExportGetLettersInRangeCached(startTime, endTime)
+	if len(letters) == 0 {
+		return nil
+	}
+	unitMap := make(map[string]int)
+	for _, l := range letters {
+		name := "未知单位"
+		if l.CurrentUnitObj != nil {
+			if l.CurrentUnitObj.Level2 != "" {
+				name = l.CurrentUnitObj.Level2
+			} else if l.CurrentUnitObj.Level1 != "" {
+				name = l.CurrentUnitObj.Level1
+			}
+		}
+		unitMap[name]++
+	}
+	return sortStatsMap(unitMap)
+}
+
+// sortStatsMap 将 map[string]int 按 count DESC 排序转为 []LetterStatsRow
+func sortStatsMap(m map[string]int) []LetterStatsRow {
+	result := make([]LetterStatsRow, 0, len(m))
+	for name, count := range m {
+		result = append(result, LetterStatsRow{Name: name, Count: count})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Count > result[j].Count })
+	return result
 }
 
 // ExportGetUnitCategoryCross 单位×类别交叉统计（总览表用）

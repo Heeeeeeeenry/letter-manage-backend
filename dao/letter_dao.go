@@ -31,6 +31,8 @@ type LetterFilter struct {
 	AllUnitIDs    []uint
 	Page          int
 	PageSize      int
+	OrderBy       string
+	OrderDesc     bool
 }
 
 // UnitNameToIDs 根据单位名称查找所有匹配的单位 ID
@@ -152,7 +154,19 @@ func GetLetterList(filter LetterFilter) ([]model.Letter, int64, error) {
 		pageSize = 20
 	}
 	offset := (page - 1) * pageSize
-	err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
+	// 动态排序，白名单防注入
+	orderClause := "created_at DESC" // 默认按操作时间倒序
+	if filter.OrderBy != "" {
+		switch filter.OrderBy {
+		case "created_at", "received_at", "updated_at":
+			dir := "ASC"
+			if filter.OrderDesc {
+				dir = "DESC"
+			}
+			orderClause = filter.OrderBy + " " + dir
+		}
+	}
+	err := query.Order(orderClause).Offset(offset).Limit(pageSize).Find(&letters).Error
 	return letters, total, err
 }
 

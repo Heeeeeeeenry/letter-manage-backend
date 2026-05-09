@@ -100,6 +100,13 @@ func GetLetterList(args map[string]interface{}, user *model.PoliceUser) (map[str
 	if v, ok := args["page_size"].(float64); ok {
 		filter.PageSize = int(v)
 	}
+	// 排序参数
+	if v, ok := args["order_by"].(string); ok {
+		filter.OrderBy = v
+	}
+	if v, ok := args["order_desc"].(bool); ok {
+		filter.OrderDesc = v
+	}
 
 	letters, total, err := dao.GetLetterList(filter)
 	if err != nil {

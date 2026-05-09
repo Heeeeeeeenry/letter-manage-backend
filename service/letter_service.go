@@ -659,7 +659,7 @@ func DispatchLetter(args map[string]interface{}, operator *model.PoliceUser) err
 }
 
 func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string, args ...map[string]interface{}) (bool, error) {
-	// 如果传入了 args 且有 unit_id，直接用 ID 检查（跳过名称匹配）
+	// 如果传入了 args 且有 unit_id，直接用 ID 检查
 	if len(args) > 0 {
 		if unitIDF, ok := args[0]["unit_id"].(float64); ok && unitIDF > 0 {
 			uid := uint(unitIDF)
@@ -668,7 +668,6 @@ func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string, args
 				return true, nil
 			case model.PermissionDistrict:
 				if operator.UnitID != nil {
-					// 区县局可以下发给自己或下属单位
 					if uid == *operator.UnitID {
 						return true, nil
 					}
@@ -681,118 +680,61 @@ func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string, args
 				}
 				return false, nil
 			default:
-				// OFFICER: 检查 dispatch_permissions 表
-				if operator.UnitID != nil {
-					perm, err := dao.GetDispatchPermissionByUnitID(*operator.UnitID)
-					if err == nil && perm != nil {
-						var scope []uint
-						if err := json.Unmarshal([]byte(perm.CanDispatchTo), &scope); err == nil {
-							for _, s := range scope {
-								if s == uid {
-									return true, nil
-								}
-							}
-						}
-					}
-				}
-				return false, nil
+				// OFFICER: check dispatch_targets + 民意智感中心 fallback
+				return checkOfficerDispatch(operator, uid)
 			}
 		}
+	}
+	// String-based: resolve targetUnit → unitIDs
+	targetIDs := dao.UnitNameToIDs(targetUnit)
+	if len(targetIDs) == 0 {
+		return false, nil
 	}
 	switch operator.PermissionLevel {
 	case model.PermissionCity:
 		return true, nil
 	case model.PermissionDistrict:
-		// district can dispatch to self or subordinates
-		if dao.GetUnitNameByID(operator.UnitID) == targetUnit {
-			return true, nil
-		}
-		// check units table: use unitID if available
-		if operator.UnitID != nil {
-			subUnitIDs := dao.GetSubordinateUnitIDs(*operator.UnitID)
-			if len(subUnitIDs) > 0 {
-				// 查找目标单位的 ID
-				allUnits, err := dao.GetAllUnits()
-				if err != nil {
-					return false, err
-				}
-				for _, u := range allUnits {
-					name := u.Level3
-					if name == "" {
-						name = u.Level2
-					}
-					if name == "" {
-						name = u.Level1
-					}
-					if name == targetUnit {
-						for _, subID := range subUnitIDs {
-							if u.ID == subID {
-								return true, nil
-							}
-						}
-						break
-					}
-				}
-			}
-		}
-		// fallback to string-based check — 仅允许下发到同分局单位
 		opUnit, _ := dao.GetUnitByID(*operator.UnitID)
 		if opUnit != nil {
-			// 解析 targetUnit: 可能是短名(Level3)或全路径
-			targetUnits := dao.UnitNameToIDs(targetUnit)
-			for _, tid := range targetUnits {
-				tu, err := dao.GetUnitByID(tid)
-				if err == nil && tu != nil &&
-					tu.Level1 == opUnit.Level1 && tu.Level2 == opUnit.Level2 {
+			for _, tid := range targetIDs {
+				tu, _ := dao.GetUnitByID(tid)
+				if tu != nil && tu.Level1 == opUnit.Level1 && tu.Level2 == opUnit.Level2 {
 					return true, nil
 				}
 			}
 		}
 		return false, nil
 	default:
-		// check dispatch_permissions table
-		var perm *model.DispatchPermission
-		if operator.UnitID != nil {
-			perm, _ = dao.GetDispatchPermissionByUnitID(*operator.UnitID)
-			if perm != nil {
-				var scope []string
-				if err := json.Unmarshal([]byte(perm.CanDispatchTo), &scope); err == nil {
-					for _, s := range scope {
-						if s == targetUnit {
-							return true, nil
-						}
-					}
-				}
-			}
-		}
-		// 无下发权限配置：民意智感中心默认可下发到同级单位
-		opUnitName := dao.GetUnitNameByID(operator.UnitID)
-		if opUnitName == "民意智感中心" && operator.UnitID != nil {
-			opUnit, _ := dao.GetUnitByID(*operator.UnitID)
-			if opUnit != nil {
-				// 1) 同分局所有同级单位（基础默认允许）
-				targetUnits := dao.UnitNameToIDs(targetUnit)
-				for _, tid := range targetUnits {
-					tu, err := dao.GetUnitByID(tid)
-					if err == nil && tu != nil &&
-						tu.Level1 == opUnit.Level1 && tu.Level2 == opUnit.Level2 {
-						return true, nil
-					}
-				}
-				// 2) 如果第一轮没匹配且perm存在，再按配置的scope校验
-				if perm != nil {
-					var scope []string
-					json.Unmarshal([]byte(perm.CanDispatchTo), &scope)
-					for _, s := range scope {
-						if s == targetUnit {
-							return true, nil
-						}
-					}
-				}
+		// OFFICER
+		for _, tid := range targetIDs {
+			ok, _ := checkOfficerDispatch(operator, tid)
+			if ok {
+				return true, nil
 			}
 		}
 		return false, nil
 	}
+}
+
+// checkOfficerDispatch checks if OFFICER can dispatch to target unit ID
+func checkOfficerDispatch(operator *model.PoliceUser, targetUnitID uint) (bool, error) {
+	if operator.UnitID == nil {
+		return false, nil
+	}
+	// 1) Check dispatch_targets table
+	ok, _ := dao.CheckDispatchPermissionByUnitID(*operator.UnitID, targetUnitID)
+	if ok {
+		return true, nil
+	}
+	// 2) 民意智感中心 fallback: same-branch units
+	opUnit, _ := dao.GetUnitByID(*operator.UnitID)
+	if opUnit != nil && opUnit.Level3 == "民意智感中心" {
+		tu, _ := dao.GetUnitByID(targetUnitID)
+		if tu != nil && tu.Level1 == opUnit.Level1 && tu.Level2 == opUnit.Level2 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func MarkInvalid(args map[string]interface{}, operator *model.PoliceUser) error {

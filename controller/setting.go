@@ -407,7 +407,7 @@ func SettingController(c *gin.Context) {
 			c.JSON(http.StatusOK, model.ErrorResp("无权限"))
 			return
 		}
-		if err := service.CreateDispatchPermission(req.Args); err != nil {
+		if err := service.CreateDispatchTarget(req.Args); err != nil {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 			return
 		}
@@ -420,7 +420,7 @@ func SettingController(c *gin.Context) {
 			c.JSON(http.StatusOK, model.ErrorResp("无权限"))
 			return
 		}
-		if err := service.UpdateDispatchPermission(req.Args); err != nil {
+		if err := service.SaveDispatchTargets(req.Args); err != nil {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 			return
 		}
@@ -433,7 +433,7 @@ func SettingController(c *gin.Context) {
 			c.JSON(http.StatusOK, model.ErrorResp("无权限"))
 			return
 		}
-		if err := service.DeleteDispatchPermission(req.Args); err != nil {
+		if err := service.DeleteDispatchTarget(req.Args); err != nil {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 			return
 		}

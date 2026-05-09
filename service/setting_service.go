@@ -453,93 +453,123 @@ func GetUsersInUnit(args map[string]interface{}) ([]model.PoliceUser, error) {
 
 // DispatchPermissions
 
-func GetDispatchPermissions() ([]model.DispatchPermission, error) {
-	return dao.GetDispatchPermissions()
-}
+// ── Dispatch Targets ──
 
-func CreateDispatchPermission(args map[string]interface{}) error {
-	perm := &model.DispatchPermission{}
-	// 优先用 unit_id，没传则通过 unit_name 查找
-	if v, ok := args["unit_id"].(float64); ok {
-		u := uint(v)
-		unit, err := dao.GetUnitByID(u)
-		if err == nil && unit != nil {
-			perm.UnitID = &u
-			perm.UnitName = pickUnitName(unit)
-		}
-	}
-	if perm.UnitName == "" {
-		if v, ok := args["unit_name"].(string); ok && v != "" {
-			perm.UnitName = v
-			// 尝试通过全路径名查找 unit_id
-			u, err := dao.GetUnitByFullName(v)
-			if err == nil && u != nil {
-				perm.UnitID = &u.ID
-			}
-		}
-	}
-	if perm.UnitName == "" {
-		return errors.New("unit_id or unit_name required")
-	}
-	if v, ok := args["dispatch_scope"]; ok {
-		b, _ := marshalJSON(v)
-		perm.CanDispatchTo = string(b)
-	} else {
-		perm.CanDispatchTo = "[]"
-	}
-	return dao.CreateDispatchPermission(perm)
-}
-
-func pickUnitName(unit *model.Unit) string {
-	if unit.Level3 != "" {
-		return unit.Level3
-	}
-	if unit.Level2 != "" {
-		return unit.Level2
-	}
-	return unit.Level1
-}
-
-func UpdateDispatchPermission(args map[string]interface{}) error {
-	idF, ok := args["id"].(float64)
-	if !ok {
-		return errors.New("id required")
-	}
-	perm, err := dao.GetDispatchPermissionByID(uint(idF))
+// GetDispatchPermissions returns all targets grouped by dispatcher (for UI)
+func GetDispatchPermissions() ([]map[string]interface{}, error) {
+	targets, err := dao.GetAllDispatchTargets()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	// 如果传了 unit_id，通过 ID 更新单位名
-	if v, ok := args["unit_id"].(float64); ok {
-		u := uint(v)
-		unit, err := dao.GetUnitByID(u)
-		if err == nil && unit != nil {
-			perm.UnitID = &u
-			perm.UnitName = pickUnitName(unit)
+	// Group by dispatcher_unit_id
+	type group struct {
+		dispID uint
+		dispName string
+		targets []map[string]interface{}
+	}
+	groups := make(map[uint]*group)
+	for _, t := range targets {
+		g, ok := groups[t.DispatcherUnitID]
+		if !ok {
+			dispUnit, _ := dao.GetUnitByID(t.DispatcherUnitID)
+			name := ""
+			if dispUnit != nil {
+				name = pickName(*dispUnit)
+			}
+			g = &group{dispID: t.DispatcherUnitID, dispName: name, targets: []map[string]interface{}{}}
+			groups[t.DispatcherUnitID] = g
 		}
+		targetName := ""
+		if t.TargetUnit != nil {
+			targetName = pickName(*t.TargetUnit)
+		}
+		g.targets = append(g.targets, map[string]interface{}{
+			"id":              t.ID,
+			"target_unit_id":  t.TargetUnitID,
+			"target_unit_name": targetName,
+		})
 	}
-	if perm.UnitName == "" {
-		if v, ok := args["unit_name"].(string); ok && v != "" {
-			perm.UnitName = v
-			u, err := dao.GetUnitByFullName(v)
-			if err == nil && u != nil {
-				perm.UnitID = &u.ID
+	result := make([]map[string]interface{}, 0, len(groups))
+	for _, g := range groups {
+		result = append(result, map[string]interface{}{
+			"unit_id":   g.dispID,
+			"unit_name": g.dispName,
+			"targets":   g.targets,
+		})
+	}
+	return result, nil
+}
+
+// CreateDispatchTarget creates a dispatch permission for a dispatcher→target pair
+func CreateDispatchTarget(args map[string]interface{}) error {
+	var dispatcherUnitID, targetUnitID uint
+	if v, ok := args["dispatcher_unit_id"].(float64); ok {
+		dispatcherUnitID = uint(v)
+	} else {
+		// Legacy: resolve by unit_name
+		if name, _ := args["unit_name"].(string); name != "" {
+			u, _ := dao.GetUnitByFullName(name)
+			if u != nil {
+				dispatcherUnitID = u.ID
 			}
 		}
 	}
-	if v, ok := args["dispatch_scope"]; ok {
-		b, _ := marshalJSON(v)
-		perm.CanDispatchTo = string(b)
+	if dispatcherUnitID == 0 {
+		return errors.New("dispatcher_unit_id required")
 	}
-	return dao.UpdateDispatchPermission(perm)
+	if v, ok := args["target_unit_id"].(float64); ok {
+		targetUnitID = uint(v)
+	} else {
+		return errors.New("target_unit_id required")
+	}
+	dt := &model.DispatchTarget{
+		DispatcherUnitID: dispatcherUnitID,
+		TargetUnitID:     targetUnitID,
+	}
+	return dao.CreateDispatchTarget(dt)
 }
 
-func DeleteDispatchPermission(args map[string]interface{}) error {
+// DeleteDispatchTarget deletes a single dispatch_target row
+func DeleteDispatchTarget(args map[string]interface{}) error {
 	idF, ok := args["id"].(float64)
 	if !ok {
 		return errors.New("id required")
 	}
-	return dao.DeleteDispatchPermission(uint(idF))
+	return dao.DeleteDispatchTarget(uint(idF))
+}
+
+// SaveDispatchTargets replaces all targets for a dispatcher with the given list
+func SaveDispatchTargets(args map[string]interface{}) error {
+	var dispatcherUnitID uint
+	if v, ok := args["dispatcher_unit_id"].(float64); ok {
+		dispatcherUnitID = uint(v)
+	}
+	if dispatcherUnitID == 0 {
+		return errors.New("dispatcher_unit_id required")
+	}
+	// Delete existing targets
+	dao.DeleteDispatchTargetsByDispatcher(dispatcherUnitID)
+	// Insert new targets
+	targetIDs, ok := args["target_unit_ids"].([]interface{})
+	if !ok {
+		return nil // no new targets
+	}
+	for _, idVal := range targetIDs {
+		var tid uint
+		switch v := idVal.(type) {
+		case float64:
+			tid = uint(v)
+		case uint:
+			tid = v
+		default:
+			continue
+		}
+		dao.CreateDispatchTarget(&model.DispatchTarget{
+			DispatcherUnitID: dispatcherUnitID,
+			TargetUnitID:     tid,
+		})
+	}
+	return nil
 }
 
 func CheckDispatchPermissionAPI(args map[string]interface{}, operator *model.PoliceUser) (bool, error) {
@@ -625,64 +655,28 @@ func GetDispatchUnits(operator *model.PoliceUser) ([]model.Unit, error) {
 		// 区县局：只能下发到本级及下级单位
 		var result []model.Unit
 		for _, u := range allUnits {
-			// 同分局 (Level1+Level2 相同)，排除市局
 			if opUnit != nil && u.Level1 == opUnit.Level1 && u.Level2 == opUnit.Level2 {
 				result = append(result, u)
 			}
 		}
 		return result, nil
 	default:
-		// OFFICER：优先查下发权限表；若未配置且单位为"民意智感中心"，默认可下发到同级单位
-		shortName := dao.GetUnitNameByID(operator.UnitID)
-		perm, _ := dao.GetDispatchPermissionByUnit(shortName)
-		// 民意智感中心：合并下发权限配置 + 同分局默认单位
-		if shortName == "民意智感中心" && opUnit != nil {
-			seen := make(map[uint]bool)
-			var result []model.Unit
-			// 1) 同分局所有三级单位（默认基础范围）
-			for _, u := range allUnits {
-				if u.Level1 == opUnit.Level1 && u.Level2 == opUnit.Level2 && u.Level3 != "" {
-					result = append(result, u)
-					seen[u.ID] = true
-				}
-			}
-			// 2) 组织管理中已配置的下发权限单位（追加，不重复）
-			if perm != nil {
-				var scope []string
-				json.Unmarshal([]byte(perm.CanDispatchTo), &scope)
-				for _, u := range allUnits {
-					if seen[u.ID] {
-						continue
-					}
-					name := pickName(u)
-					for _, s := range scope {
-						if s == name {
-							result = append(result, u)
-							seen[u.ID] = true
-							break
-						}
-					}
-				}
-			}
-			return result, nil
+		// OFFICER: 使用 GetDispatchUnitIDs 获取可下发单位ID列表
+		targetIDs, err := dao.GetDispatchUnitIDs(*operator.UnitID, opUnit)
+		if err != nil {
+			return nil, err
 		}
-		// 非民意智感中心：仅按下发权限配置
-		if perm != nil {
-			var scope []string
-			json.Unmarshal([]byte(perm.CanDispatchTo), &scope)
-			var result []model.Unit
-			for _, u := range allUnits {
-				name := pickName(u)
-				for _, s := range scope {
-					if s == name {
-						result = append(result, u)
-						break
-					}
-				}
-			}
-			return result, nil
+		idSet := make(map[uint]bool, len(targetIDs))
+		for _, id := range targetIDs {
+			idSet[id] = true
 		}
-		return nil, nil
+		var result []model.Unit
+		for _, u := range allUnits {
+			if idSet[u.ID] {
+				result = append(result, u)
+			}
+		}
+		return result, nil
 	}
 }
 

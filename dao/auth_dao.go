@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"letter-manage-backend/model"
-
-	"gorm.io/gorm"
 )
 
 func GetUserByPoliceNumber(policeNumber string) (*model.PoliceUser, error) {
@@ -427,58 +425,75 @@ func UpdateUnit(unit *model.Unit) error {
 }
 
 func DeleteUnit(id uint) error {
+	// 级联删除下发权限关联（该单位作为下发发起方）
+	DB.Where("dispatcher_unit_id = ?", id).Delete(&model.DispatchTarget{})
+	// 级联删除下发权限关联（该单位作为下发目标方）
+	DB.Where("target_unit_id = ?", id).Delete(&model.DispatchTarget{})
 	return DB.Delete(&model.Unit{}, id).Error
 }
 
-// DispatchPermission DAO
+// DispatchTarget DAO
 
-func GetDispatchPermissions() ([]model.DispatchPermission, error) {
-	var perms []model.DispatchPermission
-	err := DB.Find(&perms).Error
-	return perms, err
+func GetDispatchTargetsByDispatcher(dispatcherUnitID uint) ([]model.DispatchTarget, error) {
+	var targets []model.DispatchTarget
+	err := DB.Where("dispatcher_unit_id = ?", dispatcherUnitID).
+		Preload("TargetUnit").Find(&targets).Error
+	return targets, err
 }
 
-func GetDispatchPermissionByUnit(unitName string) (*model.DispatchPermission, error) {
-	var perm model.DispatchPermission
-	err := DB.Where("unit_name = ?", unitName).First(&perm).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, nil
+func GetDispatchTargetIDsByDispatcher(dispatcherUnitID uint) ([]uint, error) {
+	var ids []uint
+	err := DB.Model(&model.DispatchTarget{}).
+		Where("dispatcher_unit_id = ?", dispatcherUnitID).
+		Pluck("target_unit_id", &ids).Error
+	return ids, err
+}
+
+func GetAllDispatchTargets() ([]model.DispatchTarget, error) {
+	var targets []model.DispatchTarget
+	err := DB.Preload("TargetUnit").Find(&targets).Error
+	return targets, err
+}
+
+func CreateDispatchTarget(dt *model.DispatchTarget) error {
+	return DB.Create(dt).Error
+}
+
+func DeleteDispatchTarget(id uint) error {
+	return DB.Delete(&model.DispatchTarget{}, id).Error
+}
+
+func DeleteDispatchTargetsByDispatcher(dispatcherUnitID uint) error {
+	return DB.Where("dispatcher_unit_id = ?", dispatcherUnitID).Delete(&model.DispatchTarget{}).Error
+}
+
+// CheckDispatchPermissionByUnitID checks if operator can dispatch to target
+func CheckDispatchPermissionByUnitID(operatorUnitID, targetUnitID uint) (bool, error) {
+	var count int64
+	err := DB.Model(&model.DispatchTarget{}).
+		Where("dispatcher_unit_id = ? AND target_unit_id = ?", operatorUnitID, targetUnitID).
+		Count(&count).Error
+	return count > 0, err
+}
+
+// GetDispatchUnitIDs returns all target unit IDs the operator can dispatch to (including same-branch logic)
+func GetDispatchUnitIDs(operatorUnitID uint, opUnit *model.Unit) ([]uint, error) {
+	// 1) From dispatch_targets table
+	var ids []uint
+	DB.Model(&model.DispatchTarget{}).
+		Where("dispatcher_unit_id = ?", operatorUnitID).
+		Pluck("target_unit_id", &ids)
+	// 2) If 民意智感中心, add all same-branch units
+	if opUnit != nil && opUnit.Level3 == "民意智感中心" {
+		var sameBranch []uint
+		DB.Model(&model.Unit{}).
+			Where("level1 = ? AND level2 = ? AND level3 != ''", opUnit.Level1, opUnit.Level2).
+			Pluck("id", &sameBranch)
+		seen := make(map[uint]bool)
+		for _, id := range ids { seen[id] = true }
+		for _, id := range sameBranch {
+			if !seen[id] { ids = append(ids, id) }
 		}
-		return nil, err
 	}
-	return &perm, nil
-}
-
-func GetDispatchPermissionByUnitID(unitID uint) (*model.DispatchPermission, error) {
-	var perm model.DispatchPermission
-	err := DB.Where("unit_id = ?", unitID).First(&perm).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &perm, nil
-}
-
-func GetDispatchPermissionByID(id uint) (*model.DispatchPermission, error) {
-	var perm model.DispatchPermission
-	err := DB.First(&perm, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &perm, nil
-}
-
-func CreateDispatchPermission(perm *model.DispatchPermission) error {
-	return DB.Create(perm).Error
-}
-
-func UpdateDispatchPermission(perm *model.DispatchPermission) error {
-	return DB.Save(perm).Error
-}
-
-func DeleteDispatchPermission(id uint) error {
-	return DB.Delete(&model.DispatchPermission{}, id).Error
+	return ids, nil
 }

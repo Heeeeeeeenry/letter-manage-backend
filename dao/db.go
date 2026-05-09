@@ -48,7 +48,7 @@ func AutoMigrate() error {
 		&model.PoliceUser{},
 		&model.UserSession{},
 		&model.Unit{},
-		&model.DispatchPermission{},
+		&model.DispatchTarget{},
 		&model.Prompt{},
 		&model.SpecialFocus{},
 		&model.LetterSpecialFocus{},

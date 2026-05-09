@@ -459,23 +459,27 @@ func GetDispatchPermissions() ([]model.DispatchPermission, error) {
 
 func CreateDispatchPermission(args map[string]interface{}) error {
 	perm := &model.DispatchPermission{}
-	// 如果传了 unit_id，通过 ID 查找单位名
+	// 优先用 unit_id，没传则通过 unit_name 查找
 	if v, ok := args["unit_id"].(float64); ok {
 		u := uint(v)
 		unit, err := dao.GetUnitByID(u)
 		if err == nil && unit != nil {
 			perm.UnitID = &u
-			perm.UnitName = unit.Level3
-			if perm.UnitName == "" {
-				perm.UnitName = unit.Level2
-			}
-			if perm.UnitName == "" {
-				perm.UnitName = unit.Level1
+			perm.UnitName = pickUnitName(unit)
+		}
+	}
+	if perm.UnitName == "" {
+		if v, ok := args["unit_name"].(string); ok && v != "" {
+			perm.UnitName = v
+			// 尝试通过全路径名查找 unit_id
+			u, err := dao.GetUnitByFullName(v)
+			if err == nil && u != nil {
+				perm.UnitID = &u.ID
 			}
 		}
 	}
 	if perm.UnitName == "" {
-		return errors.New("unit_id required")
+		return errors.New("unit_id or unit_name required")
 	}
 	if v, ok := args["dispatch_scope"]; ok {
 		b, _ := marshalJSON(v)
@@ -484,6 +488,16 @@ func CreateDispatchPermission(args map[string]interface{}) error {
 		perm.CanDispatchTo = "[]"
 	}
 	return dao.CreateDispatchPermission(perm)
+}
+
+func pickUnitName(unit *model.Unit) string {
+	if unit.Level3 != "" {
+		return unit.Level3
+	}
+	if unit.Level2 != "" {
+		return unit.Level2
+	}
+	return unit.Level1
 }
 
 func UpdateDispatchPermission(args map[string]interface{}) error {

@@ -1,6 +1,7 @@
 package dao
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -374,6 +375,47 @@ func GetUnitByID(id uint) (*model.Unit, error) {
 		return nil, err
 	}
 	return &unit, nil
+}
+
+// GetUnitByFullName 通过全路径名或短名查找单位
+// "分局 / 桃城分局 / 民意智感中心" 或 "民意智感中心" 均可匹配
+func GetUnitByFullName(name string) (*model.Unit, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, errors.New("empty name")
+	}
+	// 先尝试精确匹配 level3
+	var unit model.Unit
+	err := DB.Where("level3 = ?", name).First(&unit).Error
+	if err == nil {
+		return &unit, nil
+	}
+	// 再尝试 level2
+	err = DB.Where("level2 = ?", name).First(&unit).Error
+	if err == nil {
+		return &unit, nil
+	}
+	// 再尝试 level1
+	err = DB.Where("level1 = ?", name).First(&unit).Error
+	if err == nil {
+		return &unit, nil
+	}
+	// 尝试全路径匹配：逐层拼接
+	// 格式: "分局 / 桃城分局 / 民意智感中心"
+	parts := strings.Split(name, " / ")
+	if len(parts) == 3 {
+		err = DB.Where("level1 = ? AND level2 = ? AND level3 = ?", parts[0], parts[1], parts[2]).First(&unit).Error
+		if err == nil {
+			return &unit, nil
+		}
+	}
+	if len(parts) == 2 {
+		err = DB.Where("level1 = ? AND level2 = ? AND level3 = ''", parts[0], parts[1]).First(&unit).Error
+		if err == nil {
+			return &unit, nil
+		}
+	}
+	return nil, errors.New("unit not found")
 }
 
 func CreateUnit(unit *model.Unit) error {

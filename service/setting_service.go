@@ -647,33 +647,39 @@ func GetDispatchUnits(operator *model.PoliceUser) ([]model.Unit, error) {
 	if err != nil {
 		return nil, err
 	}
+	if operator.UnitID == nil {
+		return nil, nil
+	}
 	opUnit, _ := dao.GetUnitByID(*operator.UnitID)
+
 	switch operator.PermissionLevel {
 	case model.PermissionCity:
 		return allUnits, nil
-	case model.PermissionDistrict:
-		// 区县局：只能下发到本级及下级单位
+	default:
+		// DISTRICT / OFFICER: 同分局单位 ∪ dispatch_targets 配置
+		seen := make(map[uint]bool)
 		var result []model.Unit
-		for _, u := range allUnits {
-			if opUnit != nil && u.Level1 == opUnit.Level1 && u.Level2 == opUnit.Level2 {
-				result = append(result, u)
+		// 1) 同分局单位
+		if opUnit != nil {
+			for _, u := range allUnits {
+				if u.Level1 == opUnit.Level1 && u.Level2 == opUnit.Level2 {
+					result = append(result, u)
+					seen[u.ID] = true
+				}
 			}
 		}
-		return result, nil
-	default:
-		// OFFICER: 使用 GetDispatchUnitIDs 获取可下发单位ID列表
-		targetIDs, err := dao.GetDispatchUnitIDs(*operator.UnitID, opUnit)
-		if err != nil {
-			return nil, err
-		}
-		idSet := make(map[uint]bool, len(targetIDs))
-		for _, id := range targetIDs {
-			idSet[id] = true
-		}
-		var result []model.Unit
-		for _, u := range allUnits {
-			if idSet[u.ID] {
-				result = append(result, u)
+		// 2) dispatch_targets 中配置的单位（追加去重）
+		targetIDs, _ := dao.GetDispatchUnitIDs(*operator.UnitID, opUnit)
+		for _, tid := range targetIDs {
+			if seen[tid] {
+				continue
+			}
+			for _, u := range allUnits {
+				if u.ID == tid {
+					result = append(result, u)
+					seen[tid] = true
+					break
+				}
 			}
 		}
 		return result, nil

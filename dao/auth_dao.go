@@ -128,7 +128,7 @@ func DeleteUser(id uint) error {
 	return DB.Delete(&model.PoliceUser{}, id).Error
 }
 
-func GetUserList(page, pageSize int, unitFilter string, permLevel string, isAdmin bool, currentUserID uint, unitID ...*uint) ([]model.PoliceUser, int64, error) {
+func GetUserList(page, pageSize int, unitFilter string, permLevel string, isAdmin bool, currentUserID uint, unitID []*uint, keyword string, permLevelFilter string, isActiveFilter *bool) ([]model.PoliceUser, int64, error) {
 	var users []model.PoliceUser
 	var total int64
 	offset := (page - 1) * pageSize
@@ -171,6 +171,19 @@ func GetUserList(page, pageSize int, unitFilter string, permLevel string, isAdmi
 		} else {
 			query = query.Where("1 = 0")
 		}
+	}
+	// 关键词搜索：匹配姓名或警号
+	if keyword != "" {
+		kw := "%" + keyword + "%"
+		query = query.Where("name LIKE ? OR police_number LIKE ?", kw, kw)
+	}
+	// 权限级别筛选
+	if permLevelFilter != "" {
+		query = query.Where("permission_level = ?", permLevelFilter)
+	}
+	// 激活状态筛选
+	if isActiveFilter != nil {
+		query = query.Where("is_active = ?", *isActiveFilter)
 	}
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err

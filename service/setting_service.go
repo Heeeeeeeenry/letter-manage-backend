@@ -243,30 +243,39 @@ func GetUserList(args map[string]interface{}, permLevel string, currentIsAdmin b
 	if v, ok := args["page_size"].(float64); ok {
 		pageSize = int(v)
 	}
+	// 解析筛选参数
+	keyword := ""
+	if v, ok := args["keyword"].(string); ok {
+		keyword = v
+	}
+	permLevelFilter := ""
+	if v, ok := args["perm_level"].(string); ok {
+		permLevelFilter = v
+	}
+	var isActiveFilter *bool
+	if v, ok := args["is_active"]; ok {
+		switch val := v.(type) {
+		case bool:
+			isActiveFilter = &val
+		case float64:
+			b := val != 0
+			isActiveFilter = &b
+		}
+	}
 	// 权限数据隔离：根据用户级别限制可见的用户范围
-	var unitFilter string
-	var unitIDArg *uint
+	var unitIDSlice []*uint
 	if currentUnitID != nil {
-		unitIDArg = currentUnitID
+		unitIDSlice = append(unitIDSlice, currentUnitID)
 	}
 	switch permLevel {
 	case "CITY":
-		// 市局：可见所有用户
+		// 市局：可见所有用户，DAO 中处理
 	case "DISTRICT":
-	// 区县局：可查看本单位及下属单位的用户
-		var subUnits []string
-		if currentUnitID != nil {
-			subUnits = getSubordinateUnitNames(dao.GetUnitNameByID(currentUnitID))
-		}
-		if len(subUnits) > 0 {
-			// 用户管理按单位过滤，可以传空字符串表示不过滤，但这里我们需要处理多单位
-			// 简化处理：将单位名数组传给 DAO
-		}
-		unitFilter = dao.GetUnitNameByID(currentUnitID)
+		// 区县局：DAO 中根据 unitID 和 permLevel 处理权限
 	default:
-		unitFilter = dao.GetUnitNameByID(currentUnitID)
+		// OFFICER 无权访问用户管理，DAO 中拦截
 	}
-	users, total, err := dao.GetUserList(page, pageSize, unitFilter, permLevel, currentIsAdmin, currentUserID, unitIDArg)
+	users, total, err := dao.GetUserList(page, pageSize, "", permLevel, currentIsAdmin, currentUserID, unitIDSlice, keyword, permLevelFilter, isActiveFilter)
 	if err != nil {
 		return nil, err
 	}

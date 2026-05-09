@@ -716,7 +716,7 @@ func GetProcessingList(unitID *uint, permLevel string, page, pageSize int, handl
 	}
 	offset := (page - 1) * pageSize
 	var letters []model.Letter
-	err := query.Preload("Category").Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
+	err := query.Preload("Category").Order("updated_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
 	return letters, total, err
 }
 
@@ -765,7 +765,7 @@ func GetProcessingListByUnitID(unitID uint, permLevel string, page, pageSize int
 	}
 	offset := (page - 1) * pageSize
 	var letters []model.Letter
-	err := query.Preload("Category").Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
+	err := query.Preload("Category").Order("updated_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
 	return letters, total, err
 }
 
@@ -808,7 +808,7 @@ func GetAuditList(unitID *uint, permLevel string, page, pageSize int) ([]model.L
 	}
 	offset := (page - 1) * pageSize
 	var letters []model.Letter
-	err := query.Preload("Category").Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
+	err := query.Preload("Category").Order("updated_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
 	return letters, total, err
 }
 
@@ -841,7 +841,7 @@ func GetAuditListByUnitID(unitID uint, permLevel string, page, pageSize int) ([]
 	}
 	offset := (page - 1) * pageSize
 	var letters []model.Letter
-	err := query.Preload("Category").Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
+	err := query.Preload("Category").Order("updated_at DESC").Offset(offset).Limit(pageSize).Find(&letters).Error
 	return letters, total, err
 }
 

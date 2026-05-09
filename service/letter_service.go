@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1413,12 +1414,123 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 		"趋势":     map[string]interface{}{"dates": trendDates, "values": trendValues},
 		"分类统计":   map[string]interface{}{"categories": categories, "values": catValues},
 		"来源分布":   sourceDistribution,
-		// 环比对比（暂不计算，前端显示-）
-		"comparison": nil,
+		// 环比对比
+		"comparison": calcComparison(permLevel, period, unitID, handlerUserID, viewMode),
 		// 保留原始数据以备后用
 		"status_stats":  statusStats,
 		"channel_stats": channelStats,
 	}, nil
+}
+
+// calcComparison 计算环比变化（本周vs上周, 本月vs上月, etc）
+func calcComparison(permLevel, period string, unitID *uint, handlerUserID uint, viewMode string) map[string]interface{} {
+	if period == "all" {
+		return nil
+	}
+	now := time.Now()
+	var curStart, curEnd, prevStart, prevEnd time.Time
+	switch period {
+	case "day":
+		curStart = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		curEnd = now
+		prevStart = curStart.AddDate(0, 0, -1)
+		prevEnd = curStart
+	case "week":
+		curStart = now.AddDate(0, 0, -6)
+		curStart = time.Date(curStart.Year(), curStart.Month(), curStart.Day(), 0, 0, 0, 0, now.Location())
+		curEnd = now
+		prevStart = curStart.AddDate(0, 0, -7)
+		prevEnd = curStart
+	case "month":
+		curStart = now.AddDate(0, 0, -29)
+		curStart = time.Date(curStart.Year(), curStart.Month(), curStart.Day(), 0, 0, 0, 0, now.Location())
+		curEnd = now
+		prevStart = curStart.AddDate(0, 0, -30)
+		prevEnd = curStart
+	case "year":
+		curStart = now.AddDate(0, 0, -364)
+		curStart = time.Date(curStart.Year(), curStart.Month(), curStart.Day(), 0, 0, 0, 0, now.Location())
+		curEnd = now
+		prevStart = curStart.AddDate(0, 0, -365)
+		prevEnd = curStart
+	default:
+		return nil
+	}
+
+	// Unit IDs for filtering
+	var unitIDs []uint
+	if unitID != nil {
+		unitIDs = dao.GetSubordinateUnitIDs(*unitID)
+		if len(unitIDs) == 0 {
+			unitIDs = []uint{*unitID}
+		}
+	}
+	isPersonal := viewMode == "personal" || permLevel == "OFFICER"
+
+	// Query stats for current period
+	curTotal, curPre, curProc, curDone, curDA := int64(0), int64(0), int64(0), int64(0), int64(0)
+	var curStats []dao.StatusCount
+	if isPersonal && handlerUserID > 0 {
+		curStats, _ = dao.GetLetterStatusStatsByUnitIDs(&curStart, &curEnd, unitIDs, handlerUserID)
+	} else {
+		curStats, _ = dao.GetLetterStatusStatsByUnitIDs(&curStart, &curEnd, unitIDs)
+	}
+	for _, s := range curStats {
+		curTotal += s.Count
+		switch s.Status {
+		case model.StatusCodePreProcess:
+			curPre += s.Count
+		case model.StatusCodeDone:
+			curDone += s.Count
+		case model.StatusCodePendingDistrictAudit, model.StatusCodePendingCityAudit:
+			curDA += s.Count
+		default:
+			curProc += s.Count
+		}
+	}
+
+	// Query stats for previous period
+	prevTotal, prevPre, prevProc, prevDone, prevDA := int64(0), int64(0), int64(0), int64(0), int64(0)
+	var prevStats []dao.StatusCount
+	if isPersonal && handlerUserID > 0 {
+		prevStats, _ = dao.GetLetterStatusStatsByUnitIDs(&prevStart, &prevEnd, unitIDs, handlerUserID)
+	} else {
+		prevStats, _ = dao.GetLetterStatusStatsByUnitIDs(&prevStart, &prevEnd, unitIDs)
+	}
+	for _, s := range prevStats {
+		prevTotal += s.Count
+		switch s.Status {
+		case model.StatusCodePreProcess:
+			prevPre += s.Count
+		case model.StatusCodeDone:
+			prevDone += s.Count
+		case model.StatusCodePendingDistrictAudit, model.StatusCodePendingCityAudit:
+			prevDA += s.Count
+		default:
+			prevProc += s.Count
+		}
+	}
+
+	pctFunc := func(cur, prev int64) interface{} {
+		if prev == 0 {
+			return "-"
+		}
+		change := int(math.Round(float64(cur-prev) / float64(prev) * 100))
+		dir := "up"
+		if change < 0 {
+			dir = "down"
+			change = -change
+		}
+		return map[string]interface{}{"direction": dir, "pct": change, "prev": prev, "cur": cur}
+	}
+
+	return map[string]interface{}{
+		"信件总量": pctFunc(curTotal, prevTotal),
+		"预处理":  pctFunc(curPre, prevPre),
+		"处理中":  pctFunc(curProc, prevProc),
+		"已完成":  pctFunc(curDone, prevDone),
+		"待分县局/支队审核": pctFunc(curDA, prevDA),
+	}
 }
 
 func GetAttachments(letterNo string) (*model.LetterAttachment, error) {

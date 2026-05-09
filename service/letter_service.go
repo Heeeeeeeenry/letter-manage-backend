@@ -750,9 +750,10 @@ func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string, args
 		}
 		return false, nil
 	default:
-		// check dispatch_permissions table - try unitID first
+		// check dispatch_permissions table
+		var perm *model.DispatchPermission
 		if operator.UnitID != nil {
-			perm, _ := dao.GetDispatchPermissionByUnitID(*operator.UnitID)
+			perm, _ = dao.GetDispatchPermissionByUnitID(*operator.UnitID)
 			if perm != nil {
 				var scope []string
 				if err := json.Unmarshal([]byte(perm.CanDispatchTo), &scope); err == nil {
@@ -769,12 +770,23 @@ func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string, args
 		if opUnitName == "民意智感中心" && operator.UnitID != nil {
 			opUnit, _ := dao.GetUnitByID(*operator.UnitID)
 			if opUnit != nil {
+				// 1) 同分局所有同级单位（基础默认允许）
 				targetUnits := dao.UnitNameToIDs(targetUnit)
 				for _, tid := range targetUnits {
 					tu, err := dao.GetUnitByID(tid)
 					if err == nil && tu != nil &&
 						tu.Level1 == opUnit.Level1 && tu.Level2 == opUnit.Level2 {
 						return true, nil
+					}
+				}
+				// 2) 如果第一轮没匹配且perm存在，再按配置的scope校验
+				if perm != nil {
+					var scope []string
+					json.Unmarshal([]byte(perm.CanDispatchTo), &scope)
+					for _, s := range scope {
+						if s == targetUnit {
+							return true, nil
+						}
 					}
 				}
 			}

@@ -635,6 +635,38 @@ func GetDispatchUnits(operator *model.PoliceUser) ([]model.Unit, error) {
 		// OFFICER：优先查下发权限表；若未配置且单位为"民意智感中心"，默认可下发到同级单位
 		shortName := dao.GetUnitNameByID(operator.UnitID)
 		perm, _ := dao.GetDispatchPermissionByUnit(shortName)
+		// 民意智感中心：合并下发权限配置 + 同分局默认单位
+		if shortName == "民意智感中心" && opUnit != nil {
+			seen := make(map[uint]bool)
+			var result []model.Unit
+			// 1) 同分局所有三级单位（默认基础范围）
+			for _, u := range allUnits {
+				if u.Level1 == opUnit.Level1 && u.Level2 == opUnit.Level2 && u.Level3 != "" {
+					result = append(result, u)
+					seen[u.ID] = true
+				}
+			}
+			// 2) 组织管理中已配置的下发权限单位（追加，不重复）
+			if perm != nil {
+				var scope []string
+				json.Unmarshal([]byte(perm.CanDispatchTo), &scope)
+				for _, u := range allUnits {
+					if seen[u.ID] {
+						continue
+					}
+					name := pickName(u)
+					for _, s := range scope {
+						if s == name {
+							result = append(result, u)
+							seen[u.ID] = true
+							break
+						}
+					}
+				}
+			}
+			return result, nil
+		}
+		// 非民意智感中心：仅按下发权限配置
 		if perm != nil {
 			var scope []string
 			json.Unmarshal([]byte(perm.CanDispatchTo), &scope)
@@ -646,17 +678,6 @@ func GetDispatchUnits(operator *model.PoliceUser) ([]model.Unit, error) {
 						result = append(result, u)
 						break
 					}
-				}
-			}
-			return result, nil
-		}
-		// 无下发权限配置：民意智感中心默认可下发到同分局所有单位
-		if shortName == "民意智感中心" && opUnit != nil {
-			var result []model.Unit
-			for _, u := range allUnits {
-				// 同分局 (Level1+Level2相同)，排除市局和自身
-				if u.Level1 == opUnit.Level1 && u.Level2 == opUnit.Level2 && u.Level3 != "" {
-					result = append(result, u)
 				}
 			}
 			return result, nil

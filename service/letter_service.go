@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1414,18 +1413,16 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 		"trend":               map[string]interface{}{"dates": trendDates, "values": trendValues},
 		"category_stats":      map[string]interface{}{"categories": categories, "values": catValues},
 		"source_distribution": sourceDistribution,
-		// 环比对比：复用主查询的当期数据，只查上期
-		"comparison": calcComparison(permLevel, period, unitID, handlerUserID, viewMode,
-			total, preprocessCount, processingCount, doneCount, districtAuditCount),
+		// 上期数据（前端计算环比）
+		"prev": getPrevPeriodStats(permLevel, period, unitID, handlerUserID, viewMode),
 		// 保留原始数据以备后用
 		"status_stats":  statusStats,
 		"channel_stats": channelStats,
 	}, nil
 }
 
-// calcComparison 计算环比变化（本周vs上周, 本月vs上月, etc）
-func calcComparison(permLevel, period string, unitID *uint, handlerUserID uint, viewMode string,
-	curTotal, curPre, curProc, curDone, curDA int64) map[string]interface{} {
+// getPrevPeriodStats returns raw numbers for the previous period (for frontend 环比 calculation)
+func getPrevPeriodStats(permLevel, period string, unitID *uint, handlerUserID uint, viewMode string) map[string]interface{} {
 	if period == "all" {
 		return nil
 	}
@@ -1455,7 +1452,6 @@ func calcComparison(permLevel, period string, unitID *uint, handlerUserID uint, 
 		return nil
 	}
 
-	// Unit IDs for filtering
 	var unitIDs []uint
 	if unitID != nil {
 		unitIDs = dao.GetSubordinateUnitIDs(*unitID)
@@ -1465,13 +1461,13 @@ func calcComparison(permLevel, period string, unitID *uint, handlerUserID uint, 
 	}
 	isPersonal := viewMode == "personal" || permLevel == "OFFICER"
 
-	// Query only the previous period
 	var prevStats []dao.StatusCount
 	if isPersonal && handlerUserID > 0 {
 		prevStats, _ = dao.GetLetterStatusStatsByUnitIDs(&prevStart, &prevEnd, unitIDs, handlerUserID)
 	} else {
 		prevStats, _ = dao.GetLetterStatusStatsByUnitIDs(&prevStart, &prevEnd, unitIDs)
 	}
+
 	prevTotal, prevPre, prevProc, prevDone, prevDA := int64(0), int64(0), int64(0), int64(0), int64(0)
 	for _, s := range prevStats {
 		prevTotal += s.Count
@@ -1487,25 +1483,12 @@ func calcComparison(permLevel, period string, unitID *uint, handlerUserID uint, 
 		}
 	}
 
-	pctFunc := func(cur, prev int64) interface{} {
-		if prev == 0 {
-			return "-"
-		}
-		change := int(math.Round(float64(cur-prev) / float64(prev) * 100))
-		dir := "up"
-		if change < 0 {
-			dir = "down"
-			change = -change
-		}
-		return map[string]interface{}{"direction": dir, "pct": change, "prev": prev, "cur": cur}
-	}
-
 	return map[string]interface{}{
-		"total":         pctFunc(curTotal, prevTotal),
-		"preprocessing": pctFunc(curPre, prevPre),
-		"processing":    pctFunc(curProc, prevProc),
-		"done":          pctFunc(curDone, prevDone),
-		"pending_audit": pctFunc(curDA, prevDA),
+		"total":         prevTotal,
+		"preprocessing": prevPre,
+		"processing":    prevProc,
+		"done":          prevDone,
+		"pending_audit": prevDA,
 	}
 }
 

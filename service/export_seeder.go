@@ -53,7 +53,7 @@ func GenerateExportMockData(period string, existingCount int) {
 		// 检查这个月已有多少数据
 		var existing int64
 		dao.DB.Model(&model.Letter{}).
-			Where("received_at >= ? AND received_at < ?", monthStart, monthEnd).
+			Where("letters.updated_at >= ? AND letters.updated_at < ?", monthStart, monthEnd).
 			Count(&existing)
 
 		toCreate := perMonth - int(existing)
@@ -164,7 +164,6 @@ func buildMockLetter(rng *rand.Rand, monthStart time.Time, daysInMonth int,
 		CitizenName:   citizenName,
 		Phone:         phone,
 		IDCard:        "",
-		ReceivedAt:    receivedAt,
 		Channel:       channel,
 		CategoryID:    &cat.ID,
 		Content:       content,

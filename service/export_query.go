@@ -163,8 +163,8 @@ func ExportGetLettersInRange(startTime, endTime time.Time) ([]model.Letter, erro
 	err := dao.DB.
 		Joins("LEFT JOIN categories ON categories.id = letters.category_id").
 		Joins("LEFT JOIN units ON units.id = letters.current_unit_id").
-		Where("letters.received_at >= ? AND letters.received_at < ?", startTime, endTime).
-		Order("letters.received_at DESC").
+		Where("letters.updated_at >= ? AND letters.updated_at < ?", startTime, endTime).
+		Order("letters.updated_at DESC").
 		Find(&letters).Error
 	return letters, err
 }
@@ -178,7 +178,7 @@ func ExportCountLettersInRange(startTime, endTime time.Time) int64 {
 	// 缓存未命中，回退到DB COUNT
 	var count int64
 	dao.DB.Model(&model.Letter{}).
-		Where("received_at >= ? AND received_at < ?", startTime, endTime).
+		Where("letters.updated_at >= ? AND letters.updated_at < ?", startTime, endTime).
 		Count(&count)
 	return count
 }
@@ -456,10 +456,10 @@ func ExportGetDailyStats(startTime, endTime time.Time) []DailyStats {
 		channelCounts map[int]int
 	}
 	dao.DB.Model(&model.Letter{}).
-		Select("DATE(received_at) as date, channel, count(*) as cnt").
-		Where("received_at >= ? AND received_at < ?", startTime, endTime).
-		Group("DATE(received_at), channel").
-		Order("DATE(received_at) DESC").
+		Select("DATE(letters.updated_at) as date, channel, count(*) as cnt").
+		Where("letters.updated_at >= ? AND letters.updated_at < ?", startTime, endTime).
+		Group("DATE(letters.updated_at), channel").
+		Order("DATE(letters.updated_at) DESC").
 		Scan(&results) // simplified, will refine
 
 	// 更多细化查询…先简化处理
@@ -470,11 +470,11 @@ func ExportGetDailyStats(startTime, endTime time.Time) []DailyStats {
 func ExportGetLetterByChannel(startTime, endTime time.Time, channelCodes ...model.ChannelCode) ([]model.Letter, error) {
 	var letters []model.Letter
 	query := dao.DB.Preload("Category").Preload("CurrentUnitObj").
-		Where("received_at >= ? AND received_at < ?", startTime, endTime)
+		Where("letters.updated_at >= ? AND letters.updated_at < ?", startTime, endTime)
 	if len(channelCodes) > 0 {
 		query = query.Where("channel IN ?", channelCodes)
 	}
-	err := query.Order("received_at DESC").Find(&letters).Error
+	err := query.Order("letters.updated_at DESC").Find(&letters).Error
 	return letters, err
 }
 
@@ -484,7 +484,7 @@ func ExportGetRepeatLetters(startTime, endTime time.Time) []RepeatStats {
 	// 简化：按phone+citizen_name分组计数>1的视为重复
 	dao.DB.Model(&model.Letter{}).
 		Select("COALESCE(citizen_name,'') as name, COALESCE(phone,'') as phone, count(*) as cnt").
-		Where("received_at >= ? AND received_at < ?", startTime, endTime).
+		Where("letters.updated_at >= ? AND letters.updated_at < ?", startTime, endTime).
 		Group("citizen_name, phone").
 		Having("count(*) > 1").
 		Scan(&results)
@@ -505,7 +505,7 @@ func ExportCheckDataSufficiency(period string) (int, bool) {
 
 	var count int64
 	dao.DB.Model(&model.Letter{}).
-		Where("received_at >= ? AND received_at < ?", startTime, endTime).
+		Where("letters.updated_at >= ? AND letters.updated_at < ?", startTime, endTime).
 		Count(&count)
 
 	threshold := 200
@@ -530,7 +530,7 @@ func BuildLetterExport(l model.Letter) *LetterExport2 {
 		LetterNo:    l.LetterNo,
 		CitizenName: l.CitizenName,
 		Phone:       l.Phone,
-		ReceivedAt:  l.ReceivedAt.Format("2006-01-02 15:04:05"),
+		CreatedAt:   l.CreatedAt.Format("2006-01-02 15:04:05"),
 		ChannelName: getChannelName(l.Channel),
 		StatusName:  getStatusName(l.CurrentStatus),
 		StatusCode:  int(l.CurrentStatus),
@@ -564,7 +564,7 @@ type LetterExport2 struct {
 	LetterNo    string
 	CitizenName string
 	Phone       string
-	ReceivedAt  string
+	CreatedAt   string
 	ChannelName string
 	StatusName  string
 	StatusCode  int
@@ -644,7 +644,7 @@ func ExportCheckDataGaps(startTime, endTime time.Time) []ExportDataGap {
 	var channelCount int64
 	dao.DB.Model(&model.Letter{}).
 		Select("COUNT(DISTINCT channel)").
-		Where("received_at >= ? AND received_at < ?", startTime, endTime).
+		Where("letters.updated_at >= ? AND letters.updated_at < ?", startTime, endTime).
 		Count(&channelCount)
 	if channelCount < 3 {
 		gaps = append(gaps, ExportDataGap{
@@ -659,7 +659,7 @@ func ExportCheckDataGaps(startTime, endTime time.Time) []ExportDataGap {
 	var catCount int64
 	dao.DB.Model(&model.Letter{}).
 		Joins("LEFT JOIN categories ON categories.id = letters.category_id").
-		Where("received_at >= ? AND received_at < ?", startTime, endTime).
+		Where("letters.updated_at >= ? AND letters.updated_at < ?", startTime, endTime).
 		Where("categories.level1 != ''").
 		Select("COUNT(DISTINCT categories.level1)").
 		Count(&catCount)

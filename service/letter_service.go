@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -391,14 +392,8 @@ func CreateLetter(args map[string]interface{}) (*model.Letter, error) {
 		}
 	}
 	letter.CurrentStatus = model.StatusCodePreProcess
-	if v, ok := args["received_at"].(string); ok && v != "" {
-		t, err := time.ParseInLocation("2006-01-02", v, time.Local)
-		if err == nil {
-			letter.ReceivedAt = t
-		}
-	} else {
-		letter.ReceivedAt = time.Now()
-	}
+	// 信件创建时间 = 数据库插入时间
+	letter.CreatedAt = time.Now()
 	if err := dao.CreateLetter(letter); err != nil {
 		return nil, err
 	}
@@ -454,12 +449,6 @@ func UpdateLetter(args map[string]interface{}) error {
 	}
 	if v, ok := args["current_status"].(string); ok {
 		letter.CurrentStatus = model.StatusNameToCode[v]
-	}
-	if v, ok := args["received_at"].(string); ok && v != "" {
-		t, err := time.ParseInLocation("2006-01-02", v, time.Local)
-		if err == nil {
-			letter.ReceivedAt = t
-		}
 	}
 	return dao.UpdateLetter(letter)
 }
@@ -1228,6 +1217,7 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 	// 根据 period 计算滚动时间窗口
 	var startTime, endTime *time.Time
 	now := time.Now()
+	log.Printf("[STATS] period=%s permLevel=%s viewMode=%s handlerUserID=%d", period, permLevel, viewMode, handlerUserID)
 	switch period {
 	case "day":
 		t := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
@@ -1316,9 +1306,9 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 		return nil, err
 	}
 	if isPersonal && handlerUserID > 0 {
-		channelStats, err = dao.GetLetterChannelStatsByUnitIDs(unitIDs, handlerUserID)
+		channelStats, err = dao.GetLetterChannelStatsByUnitIDs(startTime, endTime, unitIDs, handlerUserID)
 	} else {
-		channelStats, err = dao.GetLetterChannelStatsByUnitIDs(unitIDs)
+		channelStats, err = dao.GetLetterChannelStatsByUnitIDs(startTime, endTime, unitIDs)
 	}
 	if err != nil {
 		return nil, err
@@ -1427,7 +1417,7 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 		})
 	}
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"total":               total,
 		"preprocessing":       preprocessCount,
 		"processing":          processingCount,
@@ -1442,7 +1432,9 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 		// 保留原始数据以备后用
 		"status_stats":  statusStats,
 		"channel_stats": channelStats,
-	}, nil
+	}
+	log.Printf("[STATS] period=%s total=%d pre=%d proc=%d done=%d audit=%d", period, total, preprocessCount, processingCount, doneCount, districtAuditCount)
+	return result, nil
 }
 
 // getPrevPeriodStats returns raw numbers for the previous period (for frontend 环比 calculation)
@@ -2048,7 +2040,7 @@ func ExportLetters(permLevel string, unitID *uint, handlerUserID uint, args map[
 		f.SetCellValue(sheet, cellName(1, row), i+1)
 		f.SetCellValue(sheet, cellName(2, row), l.LetterNo)
 		f.SetCellValue(sheet, cellName(3, row), model.StatusCodeToName[l.CurrentStatus])
-		f.SetCellValue(sheet, cellName(4, row), l.ReceivedAt.Format("2006-01-02 15:04:05"))
+		f.SetCellValue(sheet, cellName(4, row), l.CreatedAt.Format("2006-01-02 15:04:05"))
 		f.SetCellValue(sheet, cellName(5, row), model.ChannelToName[l.Channel])
 		f.SetCellValue(sheet, cellName(6, row), l.CitizenName)
 		f.SetCellValue(sheet, cellName(7, row), l.Phone)

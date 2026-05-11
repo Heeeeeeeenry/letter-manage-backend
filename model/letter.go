@@ -9,7 +9,6 @@ type Letter struct {
 	CitizenName     string      `json:"citizen_name" gorm:"column:citizen_name;size:64"`
 	Phone           string      `json:"phone" gorm:"column:phone;size:32"`
 	IDCard          string      `json:"id_card" gorm:"column:id_card;size:32"`
-	ReceivedAt      time.Time   `json:"received_at" gorm:"column:received_at"`
 	Channel         ChannelCode `json:"channel" gorm:"column:channel;type:tinyint"`
 	CategoryID      *uint       `json:"category_id" gorm:"column:category_id"`
 	Category        *Category   `json:"category,omitempty" gorm:"foreignKey:CategoryID"`

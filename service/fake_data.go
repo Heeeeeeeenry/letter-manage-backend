@@ -228,7 +228,7 @@ func (f *FakeDataSet) GenerateFakeLetters(n int) []LetterExport {
 			LetterNo:    f.RandomLetterNo(),
 			CitizenName: f.RandomCitizenName(),
 			Phone:       f.RandomPhone(),
-			ReceivedAt:  rt.Format("2006-01-02 15:04:05"),
+			CreatedAt:   rt.Format("2006-01-02 15:04:05"),
 			ChannelName: f.RandomChannel(),
 			StatusName:  f.RandomStatus(),
 			StatusCode:  f.rng.Intn(9) + 1,

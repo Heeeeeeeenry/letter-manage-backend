@@ -21,7 +21,7 @@ type LetterExport struct {
 	LetterNo    string
 	CitizenName string
 	Phone       string
-	ReceivedAt  string
+	CreatedAt   string
 	ChannelName string
 	StatusName  string
 	StatusCode  int
@@ -70,7 +70,7 @@ func GenerateMonthlyReportZip(permLevel string, unitID *uint, period string) (st
 
 	var realLetters []model.Letter
 	dao.DB.Preload("Category").Preload("CurrentUnitObj").
-		Where("received_at >= ? AND received_at < ?", startTime, endTime).
+		Where("letters.updated_at >= ? AND letters.updated_at < ?", startTime, endTime).
 		Order("created_at DESC").Limit(9999).Find(&realLetters)
 
 	var realData []LetterExport
@@ -148,7 +148,7 @@ func buildExport(l model.Letter) LetterExport {
 		LetterNo:    l.LetterNo,
 		CitizenName: l.CitizenName,
 		Phone:       l.Phone,
-		ReceivedAt:  l.ReceivedAt.Format("2006-01-02 15:04:05"),
+		CreatedAt:   l.CreatedAt.Format("2006-01-02 15:04:05"),
 		ChannelName: l.GetChannelName(),
 		StatusName:  l.GetStatusName(),
 		StatusCode:  int(l.CurrentStatus),
@@ -201,7 +201,7 @@ func genMonthlySummary(dir, periodLabel string, realData, fakeData []LetterExpor
 		setVal(f, "信箱", 1, row, i+1)
 		setVal(f, "信箱", 2, row, e.LetterNo)
 		setVal(f, "信箱", 3, row, e.StatusName)
-		setVal(f, "信箱", 4, row, trunc(e.ReceivedAt, 10))
+		setVal(f, "信箱", 4, row, trunc(e.CreatedAt, 10))
 		setVal(f, "信箱", 5, row, e.ChannelName)
 		setVal(f, "信箱", 6, row, e.CitizenName)
 		setVal(f, "信箱", 7, row, e.Phone)
@@ -240,7 +240,7 @@ func genMonthlySummary(dir, periodLabel string, realData, fakeData []LetterExpor
 			setVal(f, sname, 1, row, i+1)
 			setVal(f, sname, 2, row, e.LetterNo)
 			setVal(f, sname, 3, row, e.StatusName)
-			setVal(f, sname, 4, row, trunc(e.ReceivedAt, 10))
+			setVal(f, sname, 4, row, trunc(e.CreatedAt, 10))
 			setVal(f, sname, 5, row, e.ChannelName)
 			setVal(f, sname, 6, row, e.CitizenName)
 			setVal(f, sname, 7, row, e.Phone)

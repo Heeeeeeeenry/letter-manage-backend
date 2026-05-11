@@ -83,10 +83,10 @@ func buildLetterQuery(filter LetterFilter) *gorm.DB {
 		query = query.Where("id_card = ?", filter.IDCard)
 	}
 	if filter.StartTime != nil {
-		query = query.Where("received_at >= ?", filter.StartTime)
+		query = query.Where("letters.updated_at >= ?", filter.StartTime)
 	}
 	if filter.EndTime != nil {
-		query = query.Where("received_at <= ?", filter.EndTime)
+		query = query.Where("letters.updated_at <= ?", filter.EndTime)
 	}
 	// 单位过滤始终使用 unit_id
 	if filter.UnitID != nil {
@@ -155,10 +155,10 @@ func GetLetterList(filter LetterFilter) ([]model.Letter, int64, error) {
 	}
 	offset := (page - 1) * pageSize
 	// 动态排序，白名单防注入
-	orderClause := "created_at DESC" // 默认按操作时间倒序
+	orderClause := "updated_at DESC" // 默认按最近更新时间倒序
 	if filter.OrderBy != "" {
 		switch filter.OrderBy {
-		case "created_at", "received_at", "updated_at":
+		case "created_at", "updated_at":
 			dir := "ASC"
 			if filter.OrderDesc {
 				dir = "DESC"
@@ -348,10 +348,10 @@ func GetLetterStatusStats(startTime, endTime *time.Time, unitNames []string, han
 	query := DB.Model(&model.Letter{}).
 		Select("current_status as status, count(*) as count")
 	if startTime != nil {
-		query = query.Where("received_at >= ?", startTime)
+		query = query.Where("letters.updated_at >= ?", startTime)
 	}
 	if endTime != nil {
-		query = query.Where("received_at <= ?", endTime)
+		query = query.Where("letters.updated_at <= ?", endTime)
 	}
 	if len(unitNames) > 0 {
 		unitIDs := unitNamesToIDs(unitNames)
@@ -398,7 +398,7 @@ type MonthCount struct {
 func GetLetterMonthStats(unitNames []string, handlerUserID ...uint) ([]MonthCount, error) {
 	var results []MonthCount
 	query := DB.Model(&model.Letter{}).
-		Select("DATE_FORMAT(received_at, '%Y-%m') as month, count(*) as count")
+		Select("DATE_FORMAT(letters.updated_at, '%Y-%m') as month, count(*) as count")
 	if len(unitNames) > 0 {
 		unitIDs := unitNamesToIDs(unitNames)
 		if len(unitIDs) > 0 {
@@ -427,10 +427,10 @@ func GetLetterCategoryStats(startTime, endTime *time.Time, unitNames []string, h
 		Joins("LEFT JOIN categories ON categories.id = letters.category_id").
 		Where("categories.level1 != ''")
 	if startTime != nil {
-		query = query.Where("received_at >= ?", startTime)
+		query = query.Where("letters.updated_at >= ?", startTime)
 	}
 	if endTime != nil {
-		query = query.Where("received_at <= ?", endTime)
+		query = query.Where("letters.updated_at <= ?", endTime)
 	}
 	if len(unitNames) > 0 {
 		unitIDs := unitNamesToIDs(unitNames)
@@ -454,10 +454,10 @@ func GetLetterStatusStatsByUnitIDs(startTime, endTime *time.Time, unitIDs []uint
 	query := DB.Model(&model.Letter{}).
 		Select("current_status as status, count(*) as count")
 	if startTime != nil {
-		query = query.Where("received_at >= ?", startTime)
+		query = query.Where("letters.updated_at >= ?", startTime)
 	}
 	if endTime != nil {
-		query = query.Where("received_at <= ?", endTime)
+		query = query.Where("letters.updated_at <= ?", endTime)
 	}
 	if len(unitIDs) > 0 {
 		query = query.Where("(handler_unit_id IN ? OR current_unit_id IN ?)", unitIDs, unitIDs)
@@ -470,10 +470,16 @@ func GetLetterStatusStatsByUnitIDs(startTime, endTime *time.Time, unitIDs []uint
 	return results, err
 }
 
-func GetLetterChannelStatsByUnitIDs(unitIDs []uint, handlerUserID ...uint) ([]ChannelCount, error) {
+func GetLetterChannelStatsByUnitIDs(startTime, endTime *time.Time, unitIDs []uint, handlerUserID ...uint) ([]ChannelCount, error) {
 	var results []ChannelCount
 	query := DB.Model(&model.Letter{}).
 		Select("channel, count(*) as count")
+	if startTime != nil {
+		query = query.Where("letters.updated_at >= ?", startTime)
+	}
+	if endTime != nil {
+		query = query.Where("letters.updated_at <= ?", endTime)
+	}
 	if len(unitIDs) > 0 {
 		query = query.Where("(handler_unit_id IN ? OR current_unit_id IN ?)", unitIDs, unitIDs)
 	}
@@ -488,7 +494,7 @@ func GetLetterChannelStatsByUnitIDs(unitIDs []uint, handlerUserID ...uint) ([]Ch
 func GetLetterMonthStatsByUnitIDs(unitIDs []uint, handlerUserID ...uint) ([]MonthCount, error) {
 	var results []MonthCount
 	query := DB.Model(&model.Letter{}).
-		Select("DATE_FORMAT(received_at, '%Y-%m') as month, count(*) as count")
+		Select("DATE_FORMAT(letters.updated_at, '%Y-%m') as month, count(*) as count")
 	if len(unitIDs) > 0 {
 		query = query.Where("(handler_unit_id IN ? OR current_unit_id IN ?)", unitIDs, unitIDs)
 	}
@@ -528,12 +534,12 @@ func GetLetterTrend(unitIDs []uint, handlerUserID uint, granularity string, star
 
 	var results []TrendPoint
 	query := DB.Model(&model.Letter{}).
-		Select(fmt.Sprintf("DATE_FORMAT(received_at, '%s') as label, count(*) as count", format))
+		Select(fmt.Sprintf("DATE_FORMAT(letters.updated_at, '%s') as label, count(*) as count", format))
 	if startTime != nil {
-		query = query.Where("received_at >= ?", startTime)
+		query = query.Where("letters.updated_at >= ?", startTime)
 	}
 	if endTime != nil {
-		query = query.Where("received_at <= ?", endTime)
+		query = query.Where("letters.updated_at <= ?", endTime)
 	}
 	if len(unitIDs) > 0 {
 		query = query.Where("(handler_unit_id IN ? OR current_unit_id IN ?)", unitIDs, unitIDs)
@@ -552,10 +558,10 @@ func GetLetterCategoryStatsByUnitIDs(startTime, endTime *time.Time, unitIDs []ui
 		Joins("LEFT JOIN categories ON categories.id = letters.category_id").
 		Where("categories.level1 != ''")
 	if startTime != nil {
-		query = query.Where("received_at >= ?", startTime)
+		query = query.Where("letters.updated_at >= ?", startTime)
 	}
 	if endTime != nil {
-		query = query.Where("received_at <= ?", endTime)
+		query = query.Where("letters.updated_at <= ?", endTime)
 	}
 	if len(unitIDs) > 0 {
 		query = query.Where("(handler_unit_id IN ? OR current_unit_id IN ?)", unitIDs, unitIDs)
@@ -850,10 +856,10 @@ func GetLettersForExport(filter LetterFilter) ([]model.Letter, error) {
 	var letters []model.Letter
 	query := DB.Model(&model.Letter{}).Preload("Category")
 	if filter.StartTime != nil {
-		query = query.Where("received_at >= ?", filter.StartTime)
+		query = query.Where("letters.updated_at >= ?", filter.StartTime)
 	}
 	if filter.EndTime != nil {
-		query = query.Where("received_at <= ?", filter.EndTime)
+		query = query.Where("letters.updated_at <= ?", filter.EndTime)
 	}
 	if filter.Status != "" {
 		if code, ok := model.StatusNameToCode[filter.Status]; ok {
@@ -888,6 +894,6 @@ func GetLettersForExport(filter LetterFilter) ([]model.Letter, error) {
 	if filter.HandlerUserID != nil {
 		query = query.Where("handler_user_id = ?", *filter.HandlerUserID)
 	}
-	err := query.Order("received_at DESC").Find(&letters).Error
+	err := query.Order("updated_at DESC").Find(&letters).Error
 	return letters, err
 }

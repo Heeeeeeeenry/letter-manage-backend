@@ -288,8 +288,8 @@ func populateRegionDistSheet(f *excelize.File, sheet string, letters []model.Let
 	if len(letters) == 0 {
 		return
 	}
-	startTime := letters[len(letters)-1].ReceivedAt
-	endTime := letters[0].ReceivedAt.AddDate(0, 0, 1)
+	startTime := letters[len(letters)-1].CreatedAt
+	endTime := letters[0].CreatedAt.AddDate(0, 0, 1)
 	stats := ExportGetUnitLevel1Stats(startTime, endTime)
 	if len(stats) == 0 {
 		return
@@ -355,8 +355,8 @@ func populateTeamStatsSheet(f *excelize.File, sheet string, letters []model.Lett
 		return
 	}
 	teams := ExportGetTeamStats(
-		letters[len(letters)-1].ReceivedAt,
-		letters[0].ReceivedAt.AddDate(0, 0, 1),
+		letters[len(letters)-1].CreatedAt,
+		letters[0].CreatedAt.AddDate(0, 0, 1),
 	)
 	if len(teams) == 0 {
 		return
@@ -389,8 +389,8 @@ func populateRepeatSheet(f *excelize.File, sheet string, letters []model.Letter)
 	if len(letters) == 0 {
 		return
 	}
-	startTime := letters[len(letters)-1].ReceivedAt
-	endTime := letters[0].ReceivedAt.AddDate(0, 0, 1)
+	startTime := letters[len(letters)-1].CreatedAt
+	endTime := letters[0].CreatedAt.AddDate(0, 0, 1)
 	repeats := ExportGetRepeatStats(startTime, endTime)
 	if len(repeats) == 0 {
 		return
@@ -416,8 +416,8 @@ func populateComplaintDistSheet(f *excelize.File, sheet string, letters []model.
 	if len(letters) == 0 {
 		return
 	}
-	startTime := letters[len(letters)-1].ReceivedAt
-	endTime := letters[0].ReceivedAt.AddDate(0, 0, 1)
+	startTime := letters[len(letters)-1].CreatedAt
+	endTime := letters[0].CreatedAt.AddDate(0, 0, 1)
 	detail := ExportGetCategoryDetail(startTime, endTime, "投诉举报类")
 	if len(detail) == 0 {
 		return
@@ -528,8 +528,8 @@ func populateReportSheet(f *excelize.File, sheet string, letters []model.Letter)
 	if len(letters) == 0 {
 		return
 	}
-	startTime := letters[len(letters)-1].ReceivedAt
-	endTime := letters[0].ReceivedAt.AddDate(0, 0, 1)
+	startTime := letters[len(letters)-1].CreatedAt
+	endTime := letters[0].CreatedAt.AddDate(0, 0, 1)
 	detail := ExportGetCategoryDetail(startTime, endTime, "提供社会违法线索类")
 	if len(detail) == 0 {
 		return
@@ -583,8 +583,8 @@ func populateSuggestionSheet(f *excelize.File, sheet string, letters []model.Let
 	if len(letters) == 0 {
 		return
 	}
-	startTime := letters[len(letters)-1].ReceivedAt
-	endTime := letters[0].ReceivedAt.AddDate(0, 0, 1)
+	startTime := letters[len(letters)-1].CreatedAt
+	endTime := letters[0].CreatedAt.AddDate(0, 0, 1)
 	detail := ExportGetCategoryDetail(startTime, endTime, "意见建议类")
 	if len(detail) == 0 {
 		return
@@ -642,8 +642,8 @@ func populateKeySuggestionSheet(f *excelize.File, sheet string, letters []model.
 	if len(letters) == 0 {
 		return
 	}
-	startTime := letters[len(letters)-1].ReceivedAt
-	endTime := letters[0].ReceivedAt.AddDate(0, 0, 1)
+	startTime := letters[len(letters)-1].CreatedAt
+	endTime := letters[0].CreatedAt.AddDate(0, 0, 1)
 	detail := ExportGetCategoryDetail(startTime, endTime, "意见建议类")
 	if len(detail) == 0 {
 		return
@@ -732,8 +732,8 @@ func populateHelpSheet(f *excelize.File, sheet string, letters []model.Letter) {
 	if len(letters) == 0 {
 		return
 	}
-	startTime := letters[len(letters)-1].ReceivedAt
-	endTime := letters[0].ReceivedAt.AddDate(0, 0, 1)
+	startTime := letters[len(letters)-1].CreatedAt
+	endTime := letters[0].CreatedAt.AddDate(0, 0, 1)
 	detail := ExportGetCategoryDetail(startTime, endTime, "求助类")
 	if len(detail) == 0 {
 		return
@@ -787,8 +787,8 @@ func populateAppealDistSheet(f *excelize.File, sheet string, letters []model.Let
 	if len(letters) == 0 {
 		return
 	}
-	startTime := letters[len(letters)-1].ReceivedAt
-	endTime := letters[0].ReceivedAt.AddDate(0, 0, 1)
+	startTime := letters[len(letters)-1].CreatedAt
+	endTime := letters[0].CreatedAt.AddDate(0, 0, 1)
 	detail := ExportGetCategoryDetail(startTime, endTime, "申诉类")
 	if len(detail) == 0 {
 		return
@@ -836,8 +836,8 @@ func populateTeamAppealSheet(f *excelize.File, sheet string, letters []model.Let
 	if len(letters) == 0 {
 		return
 	}
-	startTime := letters[len(letters)-1].ReceivedAt
-	endTime := letters[0].ReceivedAt.AddDate(0, 0, 1)
+	startTime := letters[len(letters)-1].CreatedAt
+	endTime := letters[0].CreatedAt.AddDate(0, 0, 1)
 	detail := ExportGetTeamCategoryDetail(startTime, endTime, "申诉类")
 	if len(detail) == 0 {
 		return
@@ -884,8 +884,8 @@ func populateAppealPivotSheet(f *excelize.File, sheet string, letters []model.Le
 	if len(letters) == 0 {
 		return
 	}
-	startTime := letters[len(letters)-1].ReceivedAt
-	endTime := letters[0].ReceivedAt.AddDate(0, 0, 1)
+	startTime := letters[len(letters)-1].CreatedAt
+	endTime := letters[0].CreatedAt.AddDate(0, 0, 1)
 	detail := ExportGetCategoryDetail(startTime, endTime, "申诉类")
 	if len(detail) == 0 {
 		return
@@ -945,7 +945,7 @@ func populateAppealDetailSheet(f *excelize.File, sheet string, letters []model.L
 		writeCell(f, sheet, 1, r, r-1)
 		writeCell(f, sheet, 2, r, le.LetterNo)
 		writeCell(f, sheet, 3, r, le.StatusName)
-		writeCell(f, sheet, 4, r, le.ReceivedAt)
+		writeCell(f, sheet, 4, r, le.CreatedAt)
 		writeCell(f, sheet, 5, r, le.ChannelName)
 		writeCell(f, sheet, 6, r, le.CitizenName)
 		writeCell(f, sheet, 7, r, le.Phone)
@@ -963,8 +963,8 @@ func populateCategoryPivotSheet(f *excelize.File, sheet string, letters []model.
 	if len(letters) == 0 {
 		return
 	}
-	startTime := letters[len(letters)-1].ReceivedAt
-	endTime := letters[0].ReceivedAt.AddDate(0, 0, 1)
+	startTime := letters[len(letters)-1].CreatedAt
+	endTime := letters[0].CreatedAt.AddDate(0, 0, 1)
 	// 获取所有类别的细类统计
 	allCatL1 := []string{"意见建议类", "申诉类", "投诉举报类", "提供社会违法线索类", "求助类", "咨询政策类"}
 	headers := []string{"行标签"}
@@ -1042,7 +1042,7 @@ func populateNonRepeatSheet(f *excelize.File, sheet string, letters []model.Lett
 		writeCell(f, sheet, 1, r, r-1)
 		writeCell(f, sheet, 2, r, le.LetterNo)
 		writeCell(f, sheet, 3, r, le.StatusName)
-		writeCell(f, sheet, 4, r, le.ReceivedAt)
+		writeCell(f, sheet, 4, r, le.CreatedAt)
 		writeCell(f, sheet, 5, r, le.ChannelName)
 		writeCell(f, sheet, 6, r, le.CitizenName)
 		writeCell(f, sheet, 7, r, le.Phone)

@@ -120,7 +120,7 @@ func createLetterSheet(f *excelize.File, sheetName string, letters []model.Lette
 		f.SetCellValue(sheetName, coordToCell(1, row), i+1)
 		f.SetCellValue(sheetName, coordToCell(2, row), le.LetterNo)
 		f.SetCellValue(sheetName, coordToCell(3, row), le.StatusName)
-		f.SetCellValue(sheetName, coordToCell(4, row), le.ReceivedAt)
+		f.SetCellValue(sheetName, coordToCell(4, row), le.CreatedAt)
 		f.SetCellValue(sheetName, coordToCell(5, row), le.ChannelName)
 		f.SetCellValue(sheetName, coordToCell(6, row), le.CitizenName)
 		f.SetCellValue(sheetName, coordToCell(7, row), le.Phone)
@@ -204,7 +204,7 @@ func createDailyReportSheet(f *excelize.File, sheetName, periodLabel string, let
 		le := BuildLetterExport(l)
 
 		f.SetCellValue(sheetName, cellName(1, row), i+1)
-		f.SetCellValue(sheetName, cellName(2, row), l.ReceivedAt.Format("2006-01-02"))
+		f.SetCellValue(sheetName, cellName(2, row), l.CreatedAt.Format("2006-01-02"))
 		f.SetCellValue(sheetName, cellName(3, row), PlaceholderNoData) // 批示日期
 		f.SetCellValue(sheetName, cellName(4, row), PlaceholderNoData) // 批示内容
 		f.SetCellValue(sheetName, cellName(5, row), le.Content)        // 基本情况
@@ -321,7 +321,7 @@ func aggregateDailyStats(startTime, endTime time.Time) []dailyAgg {
 	}
 
 	for _, l := range letters {
-		dateStr := l.ReceivedAt.Format("2006-01-02")
+		dateStr := l.CreatedAt.Format("2006-01-02")
 		d, ok := dayMap[dateStr]
 		if !ok {
 			continue

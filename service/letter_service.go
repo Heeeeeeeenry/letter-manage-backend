@@ -1414,8 +1414,9 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 		"趋势":     map[string]interface{}{"dates": trendDates, "values": trendValues},
 		"分类统计":   map[string]interface{}{"categories": categories, "values": catValues},
 		"来源分布":   sourceDistribution,
-		// 环比对比
-		"comparison": calcComparison(permLevel, period, unitID, handlerUserID, viewMode),
+		// 环比对比：复用主查询的当期数据，只查上期
+		"comparison": calcComparison(permLevel, period, unitID, handlerUserID, viewMode,
+			total, preprocessCount, processingCount, doneCount, districtAuditCount),
 		// 保留原始数据以备后用
 		"status_stats":  statusStats,
 		"channel_stats": channelStats,
@@ -1423,34 +1424,31 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 }
 
 // calcComparison 计算环比变化（本周vs上周, 本月vs上月, etc）
-func calcComparison(permLevel, period string, unitID *uint, handlerUserID uint, viewMode string) map[string]interface{} {
+func calcComparison(permLevel, period string, unitID *uint, handlerUserID uint, viewMode string,
+	curTotal, curPre, curProc, curDone, curDA int64) map[string]interface{} {
 	if period == "all" {
 		return nil
 	}
 	now := time.Now()
-	var curStart, curEnd, prevStart, prevEnd time.Time
+	var prevStart, prevEnd time.Time
 	switch period {
 	case "day":
-		curStart = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		curEnd = now
-		prevStart = curStart.AddDate(0, 0, -1)
-		prevEnd = curStart
+		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		prevStart = today.AddDate(0, 0, -1)
+		prevEnd = today
 	case "week":
-		curStart = now.AddDate(0, 0, -6)
+		curStart := now.AddDate(0, 0, -6)
 		curStart = time.Date(curStart.Year(), curStart.Month(), curStart.Day(), 0, 0, 0, 0, now.Location())
-		curEnd = now
 		prevStart = curStart.AddDate(0, 0, -7)
 		prevEnd = curStart
 	case "month":
-		curStart = now.AddDate(0, 0, -29)
+		curStart := now.AddDate(0, 0, -29)
 		curStart = time.Date(curStart.Year(), curStart.Month(), curStart.Day(), 0, 0, 0, 0, now.Location())
-		curEnd = now
 		prevStart = curStart.AddDate(0, 0, -30)
 		prevEnd = curStart
 	case "year":
-		curStart = now.AddDate(0, 0, -364)
+		curStart := now.AddDate(0, 0, -364)
 		curStart = time.Date(curStart.Year(), curStart.Month(), curStart.Day(), 0, 0, 0, 0, now.Location())
-		curEnd = now
 		prevStart = curStart.AddDate(0, 0, -365)
 		prevEnd = curStart
 	default:
@@ -1467,36 +1465,14 @@ func calcComparison(permLevel, period string, unitID *uint, handlerUserID uint, 
 	}
 	isPersonal := viewMode == "personal" || permLevel == "OFFICER"
 
-	// Query stats for current period
-	curTotal, curPre, curProc, curDone, curDA := int64(0), int64(0), int64(0), int64(0), int64(0)
-	var curStats []dao.StatusCount
-	if isPersonal && handlerUserID > 0 {
-		curStats, _ = dao.GetLetterStatusStatsByUnitIDs(&curStart, &curEnd, unitIDs, handlerUserID)
-	} else {
-		curStats, _ = dao.GetLetterStatusStatsByUnitIDs(&curStart, &curEnd, unitIDs)
-	}
-	for _, s := range curStats {
-		curTotal += s.Count
-		switch s.Status {
-		case model.StatusCodePreProcess:
-			curPre += s.Count
-		case model.StatusCodeDone:
-			curDone += s.Count
-		case model.StatusCodePendingDistrictAudit, model.StatusCodePendingCityAudit:
-			curDA += s.Count
-		default:
-			curProc += s.Count
-		}
-	}
-
-	// Query stats for previous period
-	prevTotal, prevPre, prevProc, prevDone, prevDA := int64(0), int64(0), int64(0), int64(0), int64(0)
+	// Query only the previous period
 	var prevStats []dao.StatusCount
 	if isPersonal && handlerUserID > 0 {
 		prevStats, _ = dao.GetLetterStatusStatsByUnitIDs(&prevStart, &prevEnd, unitIDs, handlerUserID)
 	} else {
 		prevStats, _ = dao.GetLetterStatusStatsByUnitIDs(&prevStart, &prevEnd, unitIDs)
 	}
+	prevTotal, prevPre, prevProc, prevDone, prevDA := int64(0), int64(0), int64(0), int64(0), int64(0)
 	for _, s := range prevStats {
 		prevTotal += s.Count
 		switch s.Status {

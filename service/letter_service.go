@@ -1405,15 +1405,15 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 	}
 
 	return map[string]interface{}{
-		"信件总量":   total,
-		"预处理":    preprocessCount,
-		"处理中":    processingCount,
-		"已完成":    doneCount,
-		"待分县局/支队审核": districtAuditCount,
-		"状态分布":   statusDistribution,
-		"趋势":     map[string]interface{}{"dates": trendDates, "values": trendValues},
-		"分类统计":   map[string]interface{}{"categories": categories, "values": catValues},
-		"来源分布":   sourceDistribution,
+		"total":               total,
+		"preprocessing":       preprocessCount,
+		"processing":          processingCount,
+		"done":                doneCount,
+		"pending_audit":       districtAuditCount,
+		"status_distribution": statusDistribution,
+		"trend":               map[string]interface{}{"dates": trendDates, "values": trendValues},
+		"category_stats":      map[string]interface{}{"categories": categories, "values": catValues},
+		"source_distribution": sourceDistribution,
 		// 环比对比：复用主查询的当期数据，只查上期
 		"comparison": calcComparison(permLevel, period, unitID, handlerUserID, viewMode,
 			total, preprocessCount, processingCount, doneCount, districtAuditCount),
@@ -1501,11 +1501,11 @@ func calcComparison(permLevel, period string, unitID *uint, handlerUserID uint, 
 	}
 
 	return map[string]interface{}{
-		"信件总量": pctFunc(curTotal, prevTotal),
-		"预处理":  pctFunc(curPre, prevPre),
-		"处理中":  pctFunc(curProc, prevProc),
-		"已完成":  pctFunc(curDone, prevDone),
-		"待分县局/支队审核": pctFunc(curDA, prevDA),
+		"total":         pctFunc(curTotal, prevTotal),
+		"preprocessing": pctFunc(curPre, prevPre),
+		"processing":    pctFunc(curProc, prevProc),
+		"done":          pctFunc(curDone, prevDone),
+		"pending_audit": pctFunc(curDA, prevDA),
 	}
 }
 

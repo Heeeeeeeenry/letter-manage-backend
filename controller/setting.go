@@ -411,36 +411,79 @@ func SettingController(c *gin.Context) {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 			return
 		}
+		// 记录操作日志
+		dispID, _ := req.Args["dispatcher_unit_id"].(float64)
+		targetID, _ := req.Args["target_unit_id"].(float64)
+		dispName := getUnitShortName(uint(dispID))
+		targetName := getUnitShortName(uint(targetID))
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "创建下发权限",
+			"下发权限管理", dispName,
+			fmt.Sprintf("添加可下发单位: %s", targetName))
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
-		name, _ := req.Args["name"].(string)
-		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "create", "下发权限管理", name, fmt.Sprintf("新增下发权限，名称:%s", name))
 
 	case "update_dispatch_permission":
 		if user.PermissionLevel != model.PermissionCity {
 			c.JSON(http.StatusOK, model.ErrorResp("无权限"))
 			return
 		}
+		dispID, _ := req.Args["dispatcher_unit_id"].(float64)
+		dispName := getUnitShortName(uint(dispID))
+		// 记录变更前的目标列表
+		oldTargets, _ := dao.GetDispatchTargetsByDispatcher(uint(dispID))
+		var oldNames []string
+		for _, t := range oldTargets {
+			if t.TargetUnit != nil {
+				oldNames = append(oldNames, pickUnitShortName(t.TargetUnit))
+			}
+		}
 		if err := service.SaveDispatchTargets(req.Args); err != nil {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 			return
 		}
+		// 记录变更后的目标列表
+		newTargets, _ := dao.GetDispatchTargetsByDispatcher(uint(dispID))
+		var newNames []string
+		for _, t := range newTargets {
+			if t.TargetUnit != nil {
+				newNames = append(newNames, pickUnitShortName(t.TargetUnit))
+			}
+		}
+		detail := fmt.Sprintf("下发范围: [%s] → [%s]",
+			strings.Join(oldNames, ", "), strings.Join(newNames, ", "))
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "修改下发权限",
+			"下发权限管理", dispName, detail)
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
-		id, _ := req.Args["id"].(float64)
-		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "update", "下发权限管理", strconv.FormatUint(uint64(id), 10), "下发范围变更")
 
 	case "delete_dispatch_permission":
 		if user.PermissionLevel != model.PermissionCity {
 			c.JSON(http.StatusOK, model.ErrorResp("无权限"))
 			return
 		}
+		idF, _ := req.Args["id"].(float64)
+		targetID := uint(idF)
+		// 查出要删除的target，获取单位名
+		targets, _ := dao.GetAllDispatchTargets()
+		var dispName, targetName string
+		for _, t := range targets {
+			if t.ID == targetID {
+				dispUnit, _ := dao.GetUnitByID(t.DispatcherUnitID)
+				if dispUnit != nil {
+					dispName = pickUnitShortName(dispUnit)
+				}
+				if t.TargetUnit != nil {
+					targetName = pickUnitShortName(t.TargetUnit)
+				}
+				break
+			}
+		}
 		if err := service.DeleteDispatchTarget(req.Args); err != nil {
 			c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 			return
 		}
+		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "删除下发权限",
+			"下发权限管理", dispName,
+			fmt.Sprintf("移除可下发单位: %s", targetName))
 		c.JSON(http.StatusOK, model.SuccessResp(nil))
-		id, _ := req.Args["id"].(float64)
-		name, _ := req.Args["name"].(string)
-		service.AddOperationLog(user.ID, user.Name, user.PoliceNumber, "delete", "下发权限管理", strconv.FormatUint(uint64(id), 10), fmt.Sprintf("删除下发权限，名称:%s", name))
 
 	case "check_dispatch_permission":
 		ok, err := service.CheckDispatchPermissionAPI(req.Args, user)
@@ -576,4 +619,20 @@ func isUnitInScope(user *model.PoliceUser, targetUnit string, targetUnitID ...*u
 		// OFFICER：只能管理本单位
 		return dao.GetUnitNameByID(user.UnitID) == targetUnit
 	}
+}
+
+// getUnitShortName 根据 unit ID 获取短名
+func getUnitShortName(id uint) string {
+	u, err := dao.GetUnitByID(id)
+	if err != nil || u == nil {
+		return fmt.Sprintf("单位#%d", id)
+	}
+	return pickUnitShortName(u)
+}
+
+// pickUnitShortName 优先取 Level3 > Level2 > Level1
+func pickUnitShortName(u *model.Unit) string {
+	if u.Level3 != "" { return u.Level3 }
+	if u.Level2 != "" { return u.Level2 }
+	return u.Level1
 }

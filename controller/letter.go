@@ -242,13 +242,14 @@ func handleUpdateStatus(c *gin.Context, args map[string]interface{}, user *model
 func handleGetStatistics(c *gin.Context, args map[string]interface{}, user *model.PoliceUser) {
 	period, _ := args["period"].(string)
 	viewMode, _ := args["view_mode"].(string)
+	region, _ := args["region"].(string)
 	// 优先使用前端传的 unit_id，否则用用户自身单位
 	unitID := user.UnitID
 	if v, ok := args["unit_id"].(float64); ok && v > 0 {
 		uid := uint(v)
 		unitID = &uid
 	}
-	data, err := service.GetStatistics(string(user.PermissionLevel), period, unitID, user.ID, viewMode)
+	data, err := service.GetStatistics(string(user.PermissionLevel), period, unitID, user.ID, viewMode, region)
 	if err != nil {
 		c.JSON(http.StatusOK, model.ErrorResp(err.Error()))
 		return

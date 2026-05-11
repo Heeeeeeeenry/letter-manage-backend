@@ -1224,7 +1224,7 @@ func AuditReject(args map[string]interface{}, operator *model.PoliceUser) error 
 	return appendFlowRecord(letterNo, record)
 }
 
-func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID uint, viewMode string) (map[string]interface{}, error) {
+func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID uint, viewMode, region string) (map[string]interface{}, error) {
 	// 根据 period 计算滚动时间窗口
 	var startTime, endTime *time.Time
 	now := time.Now()
@@ -1271,6 +1271,30 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 		if hasUnitID {
 			unitIDs = []uint{*unitID}
 		}
+	}
+
+	// 地域筛选：region 参数优先级高于 unitID
+	if region != "" {
+		region = strings.TrimSpace(region)
+		knownRegions := []string{"桃城", "高新", "滨湖", "冀州", "枣强", "武邑", "深州", "武强", "饶阳", "安平", "故城", "景县", "阜城", "交管"}
+		allUnits, _ := dao.GetAllUnits()
+		var regionIDs []uint
+		for _, u := range allUnits {
+			matched := false
+			for _, r := range knownRegions {
+				if strings.Contains(u.Level2, r) {
+					matched = true
+					if region != "其他" && r == region {
+						regionIDs = append(regionIDs, u.ID)
+					}
+					break
+				}
+			}
+			if region == "其他" && !matched && u.Level2 != "" {
+				regionIDs = append(regionIDs, u.ID)
+			}
+		}
+		unitIDs = regionIDs
 	}
 
 	var statusStats []dao.StatusCount
@@ -1414,7 +1438,7 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 		"category_stats":      map[string]interface{}{"categories": categories, "values": catValues},
 		"source_distribution": sourceDistribution,
 		// 上期数据（前端计算环比）
-		"prev": getPrevPeriodStats(permLevel, period, unitID, handlerUserID, viewMode),
+		"prev": getPrevPeriodStats(permLevel, period, unitID, handlerUserID, viewMode, region),
 		// 保留原始数据以备后用
 		"status_stats":  statusStats,
 		"channel_stats": channelStats,
@@ -1422,7 +1446,7 @@ func GetStatistics(permLevel string, period string, unitID *uint, handlerUserID 
 }
 
 // getPrevPeriodStats returns raw numbers for the previous period (for frontend 环比 calculation)
-func getPrevPeriodStats(permLevel, period string, unitID *uint, handlerUserID uint, viewMode string) map[string]interface{} {
+func getPrevPeriodStats(permLevel, period string, unitID *uint, handlerUserID uint, viewMode, region string) map[string]interface{} {
 	if period == "all" {
 		return nil
 	}
@@ -1453,7 +1477,26 @@ func getPrevPeriodStats(permLevel, period string, unitID *uint, handlerUserID ui
 	}
 
 	var unitIDs []uint
-	if unitID != nil {
+	if region != "" {
+		region = strings.TrimSpace(region)
+		knownRegions := []string{"桃城", "高新", "滨湖", "冀州", "枣强", "武邑", "深州", "武强", "饶阳", "安平", "故城", "景县", "阜城", "交管"}
+		allUnits, _ := dao.GetAllUnits()
+		for _, u := range allUnits {
+			matched := false
+			for _, r := range knownRegions {
+				if strings.Contains(u.Level2, r) {
+					matched = true
+					if region != "其他" && r == region {
+						unitIDs = append(unitIDs, u.ID)
+					}
+					break
+				}
+			}
+			if region == "其他" && !matched && u.Level2 != "" {
+				unitIDs = append(unitIDs, u.ID)
+			}
+		}
+	} else if unitID != nil {
 		unitIDs = dao.GetSubordinateUnitIDs(*unitID)
 		if len(unitIDs) == 0 {
 			unitIDs = []uint{*unitID}

@@ -3,6 +3,7 @@ package dao
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -60,17 +61,19 @@ func UnitNameToIDs(unitName string) []uint {
 func buildLetterQuery(filter LetterFilter) *gorm.DB {
 	query := DB.Model(&model.Letter{})
 	if filter.Status != "" {
-		// 支持逗号分隔的多个状态名
-		names := splitAndTrim(filter.Status)
-		if len(names) == 1 {
-			if code, ok := model.StatusNameToCode[names[0]]; ok {
-				query = query.Where("current_status = ?", code)
+		// 支持逗号分隔：纯数字码 或 中文状态名
+		parts := splitAndTrim(filter.Status)
+		if len(parts) == 1 {
+			code := parseStatusCode(parts[0])
+			if code != nil {
+				query = query.Where("current_status = ?", *code)
 			}
-		} else if len(names) > 1 {
+		} else if len(parts) > 1 {
 			var codes []model.StatusCode
-			for _, name := range names {
-				if code, ok := model.StatusNameToCode[name]; ok {
-					codes = append(codes, code)
+			for _, p := range parts {
+				code := parseStatusCode(p)
+				if code != nil {
+					codes = append(codes, *code)
 				}
 			}
 			if len(codes) > 0 {
@@ -922,4 +925,17 @@ func splitAndTrim(s string) []string {
 		}
 	}
 	return parts
+}
+
+func parseStatusCode(s string) *model.StatusCode {
+	// 优先尝试纯数字
+	if code, err := strconv.Atoi(s); err == nil {
+		c := model.StatusCode(code)
+		return &c
+	}
+	// 回退中文名
+	if code, ok := model.StatusNameToCode[s]; ok {
+		return &code
+	}
+	return nil
 }

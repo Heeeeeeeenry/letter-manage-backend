@@ -3,6 +3,7 @@ package dao
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"letter-manage-backend/model"
@@ -59,8 +60,22 @@ func UnitNameToIDs(unitName string) []uint {
 func buildLetterQuery(filter LetterFilter) *gorm.DB {
 	query := DB.Model(&model.Letter{})
 	if filter.Status != "" {
-		if code, ok := model.StatusNameToCode[filter.Status]; ok {
-			query = query.Where("current_status = ?", code)
+		// 支持逗号分隔的多个状态名
+		names := splitAndTrim(filter.Status)
+		if len(names) == 1 {
+			if code, ok := model.StatusNameToCode[names[0]]; ok {
+				query = query.Where("current_status = ?", code)
+			}
+		} else if len(names) > 1 {
+			var codes []model.StatusCode
+			for _, name := range names {
+				if code, ok := model.StatusNameToCode[name]; ok {
+					codes = append(codes, code)
+				}
+			}
+			if len(codes) > 0 {
+				query = query.Where("current_status IN ?", codes)
+			}
 		}
 	}
 	if filter.CategoryID != nil {
@@ -896,4 +911,15 @@ func GetLettersForExport(filter LetterFilter) ([]model.Letter, error) {
 	}
 	err := query.Order("updated_at DESC").Find(&letters).Error
 	return letters, err
+}
+
+func splitAndTrim(s string) []string {
+	parts := []string{}
+	for _, p := range strings.Split(s, ",") {
+		t := strings.TrimSpace(p)
+		if t != "" {
+			parts = append(parts, t)
+		}
+	}
+	return parts
 }

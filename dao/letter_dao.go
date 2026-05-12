@@ -916,6 +916,32 @@ func GetLettersForExport(filter LetterFilter) ([]model.Letter, error) {
 	return letters, err
 }
 
+func RegionToUnitIDs(region string) []uint {
+	region = strings.TrimSpace(region)
+	knownRegions := []string{"桃城", "高新", "滨湖", "冀州", "枣强", "武邑", "深州", "武强", "饶阳", "安平", "故城", "景县", "阜城", "交管"}
+	allUnits, err := GetAllUnits()
+	if err != nil {
+		return nil
+	}
+	var ids []uint
+	for _, u := range allUnits {
+		matched := false
+		for _, r := range knownRegions {
+			if strings.Contains(u.Level2, r) {
+				matched = true
+				if region != "其他" && r == region {
+					ids = append(ids, uint(u.ID))
+				}
+				break
+			}
+		}
+		if region == "其他" && !matched && u.Level2 != "" {
+			ids = append(ids, uint(u.ID))
+		}
+	}
+	return ids
+}
+
 func splitAndTrim(s string) []string {
 	parts := []string{}
 	for _, p := range strings.Split(s, ",") {

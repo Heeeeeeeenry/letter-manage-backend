@@ -63,6 +63,14 @@ func GetLetterList(args map[string]interface{}, user *model.PoliceUser) (map[str
 	if v, ok := args["unit_name"].(string); ok {
 		filter.UnitName = v
 	}
+	// 地区筛选：将地区名转为 unit ID 集合
+	if v, ok := args["region"].(string); ok && v != "" {
+		ids := dao.RegionToUnitIDs(v)
+		if len(ids) > 0 {
+			filter.HandlerUnitIDs = ids
+			filter.AllUnitIDs = ids
+		}
+	}
 	// 查看模式：由后端从 session 中获取用户ID，避免前端传错
 	viewMode, _ := args["view_mode"].(string)
 	if viewMode == "personal" || permLevel == "OFFICER" {

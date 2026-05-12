@@ -190,13 +190,13 @@ func GetLetterByID(id uint) (*model.Letter, error) {
 
 func GetLettersByPhone(phone string) ([]model.Letter, error) {
 	var letters []model.Letter
-	err := DB.Where("phone = ?", phone).Preload("Category").Order("created_at DESC").Find(&letters).Error
+	err := DB.Where("phone = ?", phone).Preload("Category").Order("updated_at DESC").Find(&letters).Error
 	return letters, err
 }
 
 func GetLettersByIDCard(idCard string) ([]model.Letter, error) {
 	var letters []model.Letter
-	err := DB.Where("id_card = ?", idCard).Preload("Category").Order("created_at DESC").Find(&letters).Error
+	err := DB.Where("id_card = ?", idCard).Preload("Category").Order("updated_at DESC").Find(&letters).Error
 	return letters, err
 }
 

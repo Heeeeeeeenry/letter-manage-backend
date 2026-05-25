@@ -78,6 +78,8 @@ func main() {
 	toolGroup.POST("/workdays_calculate/", controller.ToolWorkdaysCalculate)
 	toolGroup.POST("/workdays_add/", controller.ToolWorkdaysAdd)
 	toolGroup.POST("/month_calendar/", controller.ToolMonthCalendar)
+	toolGroup.POST("/transcribe/", controller.ToolTranscribe)
+	toolGroup.POST("/transcribe_stream/", controller.ToolTranscribeStream)
 
 	// Protected routes
 	protected := api.Group("")

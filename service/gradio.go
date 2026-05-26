@@ -146,7 +146,13 @@ func gradioUploadFile(localPath string) (string, error) {
 // gradioStreamEvents connects to Gradio SSE queue and sends parsed chunks to the channel
 func gradioStreamEvents(session string, ch chan<- TranscribeChunk) error {
 	url := fmt.Sprintf("%s/gradio_api/queue/data?session_hash=%s", gradioBase, session)
-	client := &http.Client{Timeout: 300 * time.Second}
+	// SSE long-poll: no overall timeout, only header timeout
+	client := &http.Client{
+		Transport: &http.Transport{
+			ResponseHeaderTimeout: 10 * time.Second,
+		},
+		Timeout: 0,
+	}
 
 	resp, err := client.Get(url)
 	if err != nil {
@@ -165,7 +171,8 @@ func gradioStreamEvents(session string, ch chan<- TranscribeChunk) error {
 // parseGradioSSE reads Gradio's SSE event stream and extracts transcription text
 func parseGradioSSE(reader io.Reader, ch chan<- TranscribeChunk) error {
 	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	// Large buffer: Gradio HTML snapshots can be > 1MB for long transcriptions
+	scanner.Buffer(make([]byte, 128*1024), 16*1024*1024)
 
 	var buf strings.Builder
 	for scanner.Scan() {

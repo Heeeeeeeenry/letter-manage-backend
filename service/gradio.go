@@ -252,10 +252,12 @@ func isComplete(msg string) bool {
 }
 
 var (
-	tagRe    = regexp.MustCompile(`<[^>]+>`)
-	cursorRe = regexp.MustCompile(`<span class="cursor">[|▌]</span>`)
-	// hasChinese: detect if a string contains at least one CJK character
-	hasChinese = regexp.MustCompile(`[\p{Han}]`)
+	tagRe     = regexp.MustCompile(`<[^>]+>`)
+	cursorRe  = regexp.MustCompile(`<span class="cursor">[|▌]</span>`)
+	hasCJK    = regexp.MustCompile(`[\p{Han}]`)
+	// Strip leading SenseVoice emotion markers
+	stripEmoji   = regexp.MustCompile(`[🎼😊😅😂🤣❤️🔥💯✨]+`)
+	leadingNoise = regexp.MustCompile(`^[^\p{Han}]+`)
 )
 
 // extractTextFromHTML extracts readable text from Gradio's HTML output.
@@ -279,11 +281,16 @@ func extractTextFromHTML(dataArr []interface{}) string {
 		for _, m := range matches {
 			text := tagRe.ReplaceAllString(m[1], "")
 			text = strings.TrimSpace(text)
+			// Strip leading SenseVoice emotion markers (🎼, 😊, etc.)
+			text = stripEmoji.ReplaceAllString(text, "")
+			// Strip leading non-CJK chars (punctuation from stripped emoji)
+			text = leadingNoise.ReplaceAllString(text, "")
+			text = strings.TrimSpace(text)
 			if text == "" || seen[text] {
 				continue
 			}
-			// Filter standalone emoji/noise (no CJK characters)
-			if len(text) < 3 && !hasChinese.MatchString(text) {
+			// Filter: lines must contain at least one CJK character
+			if !hasCJK.MatchString(text) {
 				continue
 			}
 			seen[text] = true

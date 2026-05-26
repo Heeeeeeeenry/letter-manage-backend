@@ -240,6 +240,10 @@ func ToolTranscribeStream(c *gin.Context) {
 }
 
 func emitSSE(w io.Writer, flusher http.Flusher, event, data string) {
-	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+	fmt.Fprintf(w, "event: %s\n", event)
+	for _, line := range strings.Split(data, "\n") {
+		fmt.Fprintf(w, "data: %s\n", line)
+	}
+	fmt.Fprintf(w, "\n")
 	flusher.Flush()
 }

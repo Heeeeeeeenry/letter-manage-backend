@@ -294,5 +294,5 @@ func extractTextFromHTML(dataArr []interface{}) string {
 	if len(lines) == 0 {
 		return ""
 	}
-	return strings.Join(lines, "\n\n")
+	return strings.Join(lines, "\n")
 }

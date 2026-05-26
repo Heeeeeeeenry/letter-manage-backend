@@ -246,14 +246,17 @@ func isComplete(msg string) bool {
 
 var (
 	tagRe    = regexp.MustCompile(`<[^>]+>`)
-	wsRe     = regexp.MustCompile(`\s+`)
 	cursorRe = regexp.MustCompile(`<span class="cursor">[|▌]</span>`)
+	// hasChinese: detect if a string contains at least one CJK character
+	hasChinese = regexp.MustCompile(`[\p{Han}]`)
 )
 
-// extractTextFromHTML extracts readable text from Gradio's HTML output
-// The HTML is from AppendEngine.snapshot_html() — contains <div class="line ...">text</div>
+// extractTextFromHTML extracts readable text from Gradio's HTML output.
+// SenseVoice HTML has <div class="line ...">text</div> — each line is a sentence/segment.
 func extractTextFromHTML(dataArr []interface{}) string {
-	var texts []string
+	var lines []string
+	seen := make(map[string]bool)
+
 	for _, item := range dataArr {
 		html, ok := item.(string)
 		if !ok {
@@ -263,19 +266,26 @@ func extractTextFromHTML(dataArr []interface{}) string {
 		// Remove cursor spans
 		html = cursorRe.ReplaceAllString(html, "")
 
-		// Extract text from each line div
+		// Extract each line div's text
 		lineRe := regexp.MustCompile(`<div class="line[^"]*">(.*?)</div>`)
 		matches := lineRe.FindAllStringSubmatch(html, -1)
 		for _, m := range matches {
 			text := tagRe.ReplaceAllString(m[1], "")
 			text = strings.TrimSpace(text)
-			if text != "" {
-				texts = append(texts, text)
+			if text == "" || seen[text] {
+				continue
 			}
+			// Filter standalone emoji/noise (no CJK characters)
+			if len(text) < 3 && !hasChinese.MatchString(text) {
+				continue
+			}
+			seen[text] = true
+			lines = append(lines, text)
 		}
 	}
 
-	result := strings.Join(texts, "\n")
-	result = wsRe.ReplaceAllString(result, " ")
-	return strings.TrimSpace(result)
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n\n")
 }

@@ -1,13 +1,9 @@
 package controller
 
 import (
-	"bufio"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -146,7 +142,7 @@ func resolveAudioPath(audioURL string) (string, error) {
 	return absPath, nil
 }
 
-// ToolTranscribe 音频转文字 (通过 Python stdlib 脚本调用 Gradio SenseVoice API)
+// ToolTranscribe 音频转文字 (Go 直连 Gradio SenseVoice API)
 func ToolTranscribe(c *gin.Context) {
 	var req struct {
 		AudioURL string `json:"audio_url"`
@@ -162,34 +158,27 @@ func ToolTranscribe(c *gin.Context) {
 		return
 	}
 
-	// 调用 Python stdlib 脚本（无需任何 pip 依赖）
-	cmd := exec.Command("python3", "scripts/gradio_call.py", absPath)
-	out, err := cmd.Output()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, model.ErrorResp("转写失败: "+err.Error()))
-		return
+	// 调用 Go service 直连 Gradio，收集所有 chunk 拼接
+	ch, errCh := service.TranscribeStream(absPath)
+	var texts []string
+	for chunk := range ch {
+		if chunk.Done {
+			break
+		}
+		texts = append(texts, chunk.Text)
 	}
-
-	// 解析最后一行 JSON 结果
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	lastLine := lines[len(lines)-1]
-	var result struct {
-		Done     bool   `json:"done"`
-		FullText string `json:"full_text"`
-		Error    string `json:"error"`
+	select {
+	case e := <-errCh:
+		if e != nil {
+			c.JSON(http.StatusInternalServerError, model.ErrorResp("转写失败: "+e.Error()))
+			return
+		}
+	default:
 	}
-	if err := json.Unmarshal([]byte(lastLine), &result); err != nil {
-		c.JSON(http.StatusInternalServerError, model.ErrorResp("解析失败: "+err.Error()))
-		return
-	}
-	if result.Error != "" {
-		c.JSON(http.StatusInternalServerError, model.ErrorResp(result.Error))
-		return
-	}
-	c.JSON(http.StatusOK, model.SuccessResp(result.FullText))
+	c.JSON(http.StatusOK, model.SuccessResp(strings.Join(texts, "\n\n")))
 }
 
-// ToolTranscribeStream 流式音频转文字 (SSE) — Python stdlib 脚本调用 Gradio SenseVoice API
+// ToolTranscribeStream 流式音频转文字 (SSE) — Go 直连 Gradio SenseVoice API
 func ToolTranscribeStream(c *gin.Context) {
 	var req struct {
 		AudioURL string `json:"audio_url"`
@@ -205,7 +194,6 @@ func ToolTranscribeStream(c *gin.Context) {
 		return
 	}
 
-	// 设置 SSE 头
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -217,61 +205,38 @@ func ToolTranscribeStream(c *gin.Context) {
 		return
 	}
 
-	// 调用 Python stdlib 脚本（无需 pip 依赖），实时读取 stdout
-	cmd := exec.Command("python3", "-u", "scripts/gradio_call.py", absPath)
-	cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		emitSSE(c.Writer, flusher, "error", fmt.Sprintf("创建管道失败: %v", err))
-		return
-	}
+	ch, errCh := service.TranscribeStream(absPath)
+	var fullText string
 
-	if err := cmd.Start(); err != nil {
-		emitSSE(c.Writer, flusher, "error", fmt.Sprintf("启动转写失败: %v", err))
-		return
-	}
-
-	// 逐行读取 JSON 输出并转发为 SSE
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		var msg struct {
-			Text     string `json:"text"`
-			Done     bool   `json:"done"`
-			FullText string `json:"full_text"`
-			Error    string `json:"error"`
-		}
-		if err := json.Unmarshal([]byte(line), &msg); err != nil {
-			fmt.Printf("[transcribe] skip: %s\n", line)
-			continue
-		}
-		fmt.Printf("[transcribe] ok: text=%s done=%v\n", msg.Text, msg.Done)
-
-		if msg.Error != "" {
-			emitSSE(c.Writer, flusher, "error", msg.Error)
-			cmd.Wait()
+	for {
+		select {
+		case chunk, ok := <-ch:
+			if !ok {
+				// Channel closed — check for error
+				select {
+				case e := <-errCh:
+					if e != nil {
+						emitSSE(c.Writer, flusher, "error", e.Error())
+						return
+					}
+				default:
+				}
+				emitSSE(c.Writer, flusher, "done", fullText)
+				return
+			}
+			if chunk.Done {
+				emitSSE(c.Writer, flusher, "done", fullText)
+				return
+			}
+			fullText = chunk.Text // Gradio sends cumulative text each time
+			emitSSE(c.Writer, flusher, "chunk", chunk.Text)
+		case e := <-errCh:
+			if e != nil {
+				emitSSE(c.Writer, flusher, "error", e.Error())
+			}
 			return
 		}
-
-		if msg.Done {
-			emitSSE(c.Writer, flusher, "done", msg.FullText)
-			break
-		}
-
-		if msg.Text != "" {
-			emitSSE(c.Writer, flusher, "chunk", msg.Text)
-		}
 	}
-
-	if err := scanner.Err(); err != nil {
-		emitSSE(c.Writer, flusher, "error", fmt.Sprintf("读取失败: %v", err))
-	}
-	cmd.Wait()
 }
 
 func emitSSE(w io.Writer, flusher http.Flusher, event, data string) {

@@ -13,9 +13,17 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"letter-manage-backend/config"
 )
 
-const gradioBase = "http://localhost:7860"
+// gradioURL returns the configured Gradio base URL
+func gradioURL() string {
+	if url := config.Get().Gradio.BaseURL; url != "" {
+		return url
+	}
+	return "http://localhost:7860"
+}
 
 // TranscribeChunk is a piece of transcription text from Gradio
 type TranscribeChunk struct {
@@ -76,7 +84,7 @@ func gradioSubmit(audioPath, session string) (string, error) {
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Post(
-		gradioBase+"/gradio_api/call/transcribe",
+		gradioURL()+"/gradio_api/call/transcribe",
 		"application/json",
 		strings.NewReader(string(b)),
 	)
@@ -118,7 +126,7 @@ func gradioUploadFile(localPath string) (string, error) {
 	writer.Close()
 
 	uploadID := fmt.Sprintf("upload_%d", time.Now().UnixNano())
-	url := fmt.Sprintf("%s/gradio_api/upload?upload_id=%s", gradioBase, uploadID)
+	url := fmt.Sprintf("%s/gradio_api/upload?upload_id=%s", gradioURL(), uploadID)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Post(url, writer.FormDataContentType(), body)
@@ -145,7 +153,7 @@ func gradioUploadFile(localPath string) (string, error) {
 
 // gradioStreamEvents connects to Gradio SSE queue and sends parsed chunks to the channel
 func gradioStreamEvents(session string, ch chan<- TranscribeChunk) error {
-	url := fmt.Sprintf("%s/gradio_api/queue/data?session_hash=%s", gradioBase, session)
+	url := fmt.Sprintf("%s/gradio_api/queue/data?session_hash=%s", gradioURL(), session)
 	// SSE long-poll: no overall timeout, only header timeout
 	client := &http.Client{
 		Transport: &http.Transport{

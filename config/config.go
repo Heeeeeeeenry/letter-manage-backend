@@ -14,6 +14,7 @@ type Config struct {
 	Database     DatabaseConfig          `yaml:"database"`
 	LLM          LLMConfig               `yaml:"llm"`
 	Media        MediaConfig             `yaml:"media"`
+	Gradio       GradioConfig            `yaml:"gradio"`
 	CORS         CORSConfig              `yaml:"cors"`
 	Environments map[string]EnvOverride  `yaml:"environments"`
 }
@@ -45,6 +46,10 @@ type MediaConfig struct {
 	Root string `yaml:"root"`
 }
 
+type GradioConfig struct {
+	BaseURL string `yaml:"base_url"`
+}
+
 type CORSConfig struct {
 	AllowedOrigins []string `yaml:"allowed_origins"`
 }
@@ -55,6 +60,7 @@ type EnvOverride struct {
 	Server   *ServerConfig   `yaml:"server"`
 	LLM      *LLMConfig      `yaml:"llm"`
 	Media    *MediaConfig    `yaml:"media"`
+	Gradio   *GradioConfig   `yaml:"gradio"`
 }
 
 var GlobalConfig *Config
@@ -148,6 +154,11 @@ func mergeOverride(dst *Config, src *EnvOverride) {
 	if src.Media != nil {
 		if src.Media.Root != "" {
 			dst.Media.Root = src.Media.Root
+		}
+	}
+	if src.Gradio != nil {
+		if src.Gradio.BaseURL != "" {
+			dst.Gradio.BaseURL = src.Gradio.BaseURL
 		}
 	}
 }

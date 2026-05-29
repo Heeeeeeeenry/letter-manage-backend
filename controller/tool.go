@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"letter-manage-backend/config"
 	"letter-manage-backend/model"
@@ -209,10 +208,6 @@ func ToolTranscribeStream(c *gin.Context) {
 	ch, errCh := service.TranscribeStream(absPath)
 	var fullText string
 
-	// Heartbeat every 10s to keep proxy/gateway connection alive
-	heartbeat := time.NewTicker(10 * time.Second)
-	defer heartbeat.Stop()
-
 	for {
 		select {
 		case chunk, ok := <-ch:
@@ -235,10 +230,6 @@ func ToolTranscribeStream(c *gin.Context) {
 			}
 			fullText = chunk.Text // Gradio sends cumulative text each time
 			emitSSE(c.Writer, flusher, "chunk", chunk.Text)
-		case <-heartbeat.C:
-			// SSE comment — keeps reverse proxy connection alive
-			fmt.Fprintf(c.Writer, ": heartbeat\n\n")
-			flusher.Flush()
 		case e := <-errCh:
 			if e != nil {
 				emitSSE(c.Writer, flusher, "error", e.Error())

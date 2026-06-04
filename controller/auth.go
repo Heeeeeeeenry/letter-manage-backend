@@ -54,7 +54,14 @@ func handleLogin(c *gin.Context, args map[string]interface{}) {
 	if rememberMe {
 		maxAge = 30 * 24 * 3600
 	}
-	c.Header("Set-Cookie", fmt.Sprintf("session_key=%s; Path=/; Max-Age=%d; HttpOnly", result.SessionKey, maxAge))
+	sameSite := "Lax"
+	secure := ""
+	if c.Request.TLS != nil {
+		secure = "; Secure"
+	}
+	cookie := fmt.Sprintf("session_key=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=%s%s", 
+		result.SessionKey, maxAge, sameSite, secure)
+	c.Header("Set-Cookie", cookie)
 
 	// Return user info (without password)
 	userInfo := map[string]interface{}{

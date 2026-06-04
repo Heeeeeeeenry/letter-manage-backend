@@ -413,6 +413,7 @@ func CreateLetter(args map[string]interface{}) (*model.Letter, error) {
 		HandlerFeedbackFiles:  model.JSONRaw("[]"),
 		DistrictFeedbackFiles: model.JSONRaw("[]"),
 		CallRecordings:        model.JSONRaw("[]"),
+		CitizenFiles:          model.JSONRaw("[]"),
 	}
 	dao.UpsertAttachment(att)
 	return letter, nil
@@ -1549,6 +1550,7 @@ func GetAttachments(letterNo string) (*model.LetterAttachment, error) {
 			HandlerFeedbackFiles:  model.JSONRaw("[]"),
 			DistrictFeedbackFiles: model.JSONRaw("[]"),
 			CallRecordings:        model.JSONRaw("[]"),
+			CitizenFiles:          model.JSONRaw("[]"),
 			CreatedAt:             now,
 			UpdatedAt:             now,
 		}
@@ -1592,6 +1594,12 @@ func UpdateAttachments(args map[string]interface{}) error {
 	} else {
 		att.CallRecordings = model.JSONRaw("[]")
 	}
+	if v, ok := args["citizen_files"]; ok {
+		b, _ := json.Marshal(v)
+		att.CitizenFiles = model.JSONRaw(b)
+	} else {
+		att.CitizenFiles = model.JSONRaw("[]")
+	}
 	return dao.UpsertAttachment(att)
 }
 
@@ -1610,6 +1618,7 @@ func AppendAttachment(letterNo, fileType, url, fileName string) error {
 			HandlerFeedbackFiles:  model.JSONRaw("[]"),
 			DistrictFeedbackFiles: model.JSONRaw("[]"),
 			CallRecordings:        model.JSONRaw("[]"),
+			CitizenFiles:          model.JSONRaw("[]"),
 			CreatedAt:             now,
 			UpdatedAt:             now,
 		}
@@ -1627,6 +1636,8 @@ func AppendAttachment(letterNo, fileType, url, fileName string) error {
 		currentJSON = att.HandlerFeedbackFiles
 	case "district_feedback_files":
 		currentJSON = att.DistrictFeedbackFiles
+	case "citizen_files":
+		currentJSON = att.CitizenFiles
 	default:
 		currentJSON = att.CallRecordings
 	}
@@ -1647,6 +1658,8 @@ func AppendAttachment(letterNo, fileType, url, fileName string) error {
 		att.HandlerFeedbackFiles = model.JSONRaw(b)
 	case "district_feedback_files":
 		att.DistrictFeedbackFiles = model.JSONRaw(b)
+	case "citizen_files":
+		att.CitizenFiles = model.JSONRaw(b)
 	default:
 		att.CallRecordings = model.JSONRaw(b)
 	}

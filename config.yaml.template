@@ -1,0 +1,35 @@
+server:
+  port: 8080
+  mode: release
+
+database:
+  host: mysql
+  port: 3306
+  name: letter_manage_db
+  user: root
+  password: "DB_PASSWORD_PLACEHOLDER"
+  charset: utf8mb4
+  max_idle_conns: 10
+  max_open_conns: 100
+
+llm:
+  api_url: https://api.deepseek.com/v1/chat/completions
+  api_key: "LLM_API_KEY_PLACEHOLDER"
+  model: deepseek-chat
+  timeout: 120
+
+media:
+  root: ./media
+
+gradio:
+  base_url: http://stt:7860
+
+cors:
+  allowed_origins:
+    - http://localhost:5173
+    - http://localhost:5174
+    - http://localhost:8088
+    - http://admin.letter.local:8088
+    - http://127.0.0.1:8088
+    - http://letter-web:5173
+    - http://people-web:5174

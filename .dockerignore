@@ -1,0 +1,10 @@
+.git
+.gitignore
+.idea
+*.md
+media/
+Dockerfile
+docker-compose*.yml
+Makefile
+.env
+server

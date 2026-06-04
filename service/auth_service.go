@@ -10,13 +10,24 @@ import (
 	"letter-manage-backend/dao"
 	"letter-manage-backend/model"
 
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
 func HashPassword(password string) string {
-	h := sha256.New()
-	h.Write([]byte(password))
-	return hex.EncodeToString(h.Sum(nil))
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		// fallback to SHA256 for safety
+		h := sha256.New()
+		h.Write([]byte(password))
+		return hex.EncodeToString(h.Sum(nil))
+	}
+	return string(hash)
+}
+
+func CheckPassword(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
 }
 
 func GenerateSessionKey() (string, error) {
@@ -43,9 +54,18 @@ func Login(policeNumber, password string, rememberMe bool, ip, userAgent string)
 	if !user.IsActive {
 		return nil, errors.New("该用户已被禁用，请联系管理员")
 	}
-	hashed := HashPassword(password)
-	if user.PasswordHash != hashed {
-		return nil, errors.New("密码错误")
+	// Try bcrypt first, fallback to SHA256 for legacy passwords
+	if !CheckPassword(password, user.PasswordHash) {
+		// legacy SHA256 fallback
+		h := sha256.New()
+		h.Write([]byte(password))
+		legacyHash := hex.EncodeToString(h.Sum(nil))
+		if user.PasswordHash != legacyHash {
+			return nil, errors.New("密码错误")
+		}
+		// Auto-upgrade legacy hash to bcrypt
+		newHash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		dao.UpdateUserPassword(user.ID, string(newHash))
 	}
 
 	sessionKey, err := GenerateSessionKey()

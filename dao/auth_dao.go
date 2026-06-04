@@ -375,6 +375,11 @@ func GetUnitByID(id uint) (*model.Unit, error) {
 	return &unit, nil
 }
 
+// UpdateUserPassword updates the password hash for a given user
+func UpdateUserPassword(userID uint, newHash string) error {
+	return DB.Model(&model.PoliceUser{}).Where("id = ?", userID).Update("password_hash", newHash).Error
+}
+
 // GetUnitByFullName 通过全路径名或短名查找单位
 // "分局 / 桃城分局 / 民意智感中心" 或 "民意智感中心" 均可匹配
 func GetUnitByFullName(name string) (*model.Unit, error) {

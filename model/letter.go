@@ -52,6 +52,7 @@ type LetterAttachment struct {
 	HandlerFeedbackFiles  JSONRaw   `json:"handler_feedback_files" gorm:"column:handler_feedback_files;type:json"`
 	DistrictFeedbackFiles JSONRaw   `json:"district_feedback_files" gorm:"column:district_feedback_files;type:json"`
 	CallRecordings        JSONRaw   `json:"call_recordings" gorm:"column:call_recordings;type:json"`
+	CitizenFiles          JSONRaw   `json:"citizen_files" gorm:"column:citizen_files;type:json"`
 	CreatedAt             time.Time `json:"created_at" gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt             time.Time `json:"updated_at" gorm:"column:updated_at;autoUpdateTime"`
 }

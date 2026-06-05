@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"letter-manage-backend/config"
 	"letter-manage-backend/model"
@@ -215,7 +214,7 @@ func ToolTranscribeStream(c *gin.Context) {
 
 	ch, errCh := service.TranscribeStream(absPath)
 	var fullText string
-	seen := make(map[string]bool) // dedup sentences across Gradio's repeated outputs
+	emitted := make(map[string]bool) // dedup cumulative Gradio output
 
 	for {
 		select {
@@ -241,38 +240,31 @@ func ToolTranscribeStream(c *gin.Context) {
 				emitSSE(c.Writer, flusher, "done", fullText)
 				return
 			}
-			fullText = chunk.Text // Gradio sends cumulative text each time
-			// Simulate line-by-line streaming: Gradio outputs all text at once
-			// (model.generate() is batch), so split into sentences and stream progressively
-			for _, rawLine := range strings.Split(chunk.Text, "\n") {
+			fullText = chunk.Text
+			// Gradio sends cumulative [N] text each time. Only emit new lines.
+			lines := strings.Split(chunk.Text, "\n")
+			for _, rawLine := range lines {
 				rawLine = strings.TrimSpace(rawLine)
 				if rawLine == "" {
 					continue
 				}
-				// Skip Gradio formatting lines (header/footer/dividers)
 				if strings.Contains(rawLine, "实时转译中") ||
 					strings.Contains(rawLine, "总时长") ||
 					strings.Contains(rawLine, "转译完成") ||
 					strings.ReplaceAll(rawLine, "─", "") == "" {
 					continue
 				}
-				// Clean segment markers like "[1] " and leading emoji/noise
 				cleanLine := regexp.MustCompile(`^\[\d+\]\s*`).ReplaceAllString(rawLine, "")
 				cleanLine = leadingNoise.ReplaceAllString(cleanLine, "")
 				cleanLine = strings.TrimSpace(cleanLine)
 				if cleanLine == "" {
 					continue
 				}
-				// Split into sentences for progressive streaming effect
-				sentences := sentenceSplit.ReplaceAllString(cleanLine, "$0\n")
-				for _, s := range strings.Split(sentences, "\n") {
-					s = strings.TrimSpace(s)
-					if s != "" && !seen[s] {
-						seen[s] = true
-						emitSSE(c.Writer, flusher, "chunk", s)
-						time.Sleep(300 * time.Millisecond)
-					}
+				if emitted[cleanLine] {
+					continue
 				}
+				emitted[cleanLine] = true
+				emitSSE(c.Writer, flusher, "chunk", cleanLine)
 			}
 		case e := <-errCh:
 			if e != nil {
@@ -294,5 +286,4 @@ func emitSSE(w io.Writer, flusher http.Flusher, event, data string) {
 
 var (
 	leadingNoise = regexp.MustCompile(`^[^\p{Han}]+`)
-	sentenceSplit = regexp.MustCompile(`([。！？])`)
 )

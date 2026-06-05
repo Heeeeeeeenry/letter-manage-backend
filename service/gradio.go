@@ -180,8 +180,9 @@ func gradioStreamEvents(session string, ch chan<- TranscribeChunk) error {
 // parseGradioSSE reads Gradio's SSE event stream and extracts transcription text
 func parseGradioSSE(reader io.Reader, ch chan<- TranscribeChunk) error {
 	scanner := bufio.NewScanner(reader)
-	// Large buffer: Gradio HTML snapshots can be > 1MB for long transcriptions
-	scanner.Buffer(make([]byte, 128*1024), 16*1024*1024)
+	// Small initial buffer (512B) forces frequent network reads so events stream in real-time.
+	// Max buffer still large (16MB) for long transcriptions with HTML wrapping.
+	scanner.Buffer(make([]byte, 512), 16*1024*1024)
 
 	var buf strings.Builder
 	for scanner.Scan() {

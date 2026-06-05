@@ -94,7 +94,6 @@ func parseToolArgs(c *gin.Context) map[string]interface{} {
 	if err := c.ShouldBindJSON(&req); err == nil && req.Args != nil {
 		return req.Args
 	}
-	// try reading as plain JSON map
 	var args map[string]interface{}
 	c.ShouldBindJSON(&args)
 	return args
@@ -129,13 +128,11 @@ func dispatchTool(c *gin.Context, order string, args map[string]interface{}) {
 	c.JSON(http.StatusOK, model.SuccessResp(data))
 }
 
-// resolveAudioPath 将 audio_url 转为安全的本地绝对路径
 func resolveAudioPath(audioURL string) (string, error) {
 	cfg := config.Get()
 	mediaRoot := cfg.Media.Root
 	relativePath := audioURL[len("/media/"):]
 	localPath := filepath.Join(mediaRoot, relativePath)
-
 	absPath, _ := filepath.Abs(localPath)
 	absRoot, _ := filepath.Abs(mediaRoot)
 	if !strings.HasPrefix(absPath, absRoot) {
@@ -144,7 +141,6 @@ func resolveAudioPath(audioURL string) (string, error) {
 	return absPath, nil
 }
 
-// ToolTranscribe 音频转文字 (Go 直连 Gradio SenseVoice API)
 func ToolTranscribe(c *gin.Context) {
 	var req struct {
 		AudioURL string `json:"audio_url"`
@@ -153,14 +149,11 @@ func ToolTranscribe(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResp("请提供 audio_url"))
 		return
 	}
-
 	absPath, err := resolveAudioPath(req.AudioURL)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResp(err.Error()))
 		return
 	}
-
-	// 调用 Go service 直连 Gradio，收集所有 chunk 拼接
 	ch, errCh := service.TranscribeStream(absPath)
 	var texts []string
 	for chunk := range ch {
@@ -183,7 +176,6 @@ func ToolTranscribe(c *gin.Context) {
 	c.JSON(http.StatusOK, model.SuccessResp(strings.Join(texts, "\n\n")))
 }
 
-// ToolTranscribeStream 流式音频转文字 (SSE) — Go 直连 Gradio SenseVoice API
 func ToolTranscribeStream(c *gin.Context) {
 	var req struct {
 		AudioURL string `json:"audio_url"`
@@ -210,18 +202,16 @@ func ToolTranscribeStream(c *gin.Context) {
 		return
 	}
 
-	// Send immediate status so client knows we're processing
 	emitSSE(c.Writer, flusher, "status", "正在上传音频并启动识别...")
 
 	ch, errCh := service.TranscribeStream(absPath)
-	var fullText string
-	emitted := make(map[string]bool) // dedup cumulative Gradio output
+	var emittedText string
+	emitted := make(map[string]bool)
 
 	for {
 		select {
 		case chunk, ok := <-ch:
 			if !ok {
-				// Channel closed — check for error
 				select {
 				case e := <-errCh:
 					if e != nil {
@@ -230,7 +220,7 @@ func ToolTranscribeStream(c *gin.Context) {
 					}
 				default:
 				}
-				emitSSE(c.Writer, flusher, "done", fullText)
+				emitSSE(c.Writer, flusher, "done", emittedText)
 				return
 			}
 			if chunk.Status != "" {
@@ -238,13 +228,11 @@ func ToolTranscribeStream(c *gin.Context) {
 				continue
 			}
 			if chunk.Done {
-				emitSSE(c.Writer, flusher, "done", fullText)
+				emitSSE(c.Writer, flusher, "done", emittedText)
 				return
 			}
-			fullText = chunk.Text
-			// Gradio sends cumulative [N] text each time. Only emit new lines.
-			lines := strings.Split(chunk.Text, "\n")
-			for _, rawLine := range lines {
+			// Gradio sends cumulative text. Only emit new lines.
+			for _, rawLine := range strings.Split(chunk.Text, "\n") {
 				rawLine = strings.TrimSpace(rawLine)
 				if rawLine == "" {
 					continue
@@ -270,6 +258,7 @@ func ToolTranscribeStream(c *gin.Context) {
 					emitSSE(c.Writer, flusher, "chunk", string(ch))
 					time.Sleep(30 * time.Millisecond)
 				}
+				emittedText += cleanLine
 			}
 		case e := <-errCh:
 			if e != nil {

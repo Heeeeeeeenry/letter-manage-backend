@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"letter-manage-backend/config"
 	"letter-manage-backend/model"
@@ -264,7 +265,11 @@ func ToolTranscribeStream(c *gin.Context) {
 					continue
 				}
 				emitted[cleanLine] = true
-				emitSSE(c.Writer, flusher, "chunk", cleanLine)
+				// Character-by-character streaming for typewriter effect
+				for _, ch := range cleanLine {
+					emitSSE(c.Writer, flusher, "chunk", string(ch))
+					time.Sleep(30 * time.Millisecond)
+				}
 			}
 		case e := <-errCh:
 			if e != nil {

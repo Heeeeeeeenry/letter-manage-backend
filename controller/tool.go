@@ -270,7 +270,7 @@ func ToolTranscribeStream(c *gin.Context) {
 					if s != "" && !seen[s] {
 						seen[s] = true
 						emitSSE(c.Writer, flusher, "chunk", s)
-						time.Sleep(60 * time.Millisecond)
+						time.Sleep(300 * time.Millisecond)
 					}
 				}
 			}

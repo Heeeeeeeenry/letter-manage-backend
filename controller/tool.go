@@ -162,6 +162,9 @@ func ToolTranscribe(c *gin.Context) {
 	ch, errCh := service.TranscribeStream(absPath)
 	var texts []string
 	for chunk := range ch {
+		if chunk.Status != "" {
+			continue
+		}
 		if chunk.Done {
 			break
 		}
@@ -205,6 +208,9 @@ func ToolTranscribeStream(c *gin.Context) {
 		return
 	}
 
+	// Send immediate status so client knows we're processing
+	emitSSE(c.Writer, flusher, "status", "正在上传音频并启动识别...")
+
 	ch, errCh := service.TranscribeStream(absPath)
 	var fullText string
 
@@ -223,6 +229,10 @@ func ToolTranscribeStream(c *gin.Context) {
 				}
 				emitSSE(c.Writer, flusher, "done", fullText)
 				return
+			}
+			if chunk.Status != "" {
+				emitSSE(c.Writer, flusher, "status", chunk.Status)
+				continue
 			}
 			if chunk.Done {
 				emitSSE(c.Writer, flusher, "done", fullText)

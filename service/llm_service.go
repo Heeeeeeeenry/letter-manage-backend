@@ -41,6 +41,9 @@ func buildHTTPClient(timeoutSec int) *http.Client {
 
 func Chat(messages []LLMMessage) (string, error) {
 	cfg := config.Get().LLM
+	if cfg.APIKey == "" {
+		return "", fmt.Errorf("LLM API key not configured (set LLM_API_KEY environment variable)")
+	}
 	reqBody := LLMRequest{
 		Model:    cfg.Model,
 		Messages: messages,

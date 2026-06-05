@@ -1787,7 +1787,16 @@ func AnalyzeLetterForDispatch(letterNo string) (map[string]interface{}, error) {
 
 	result, err := Chat(messages)
 	if err != nil {
-		return nil, fmt.Errorf("LLM analysis failed: %w", err)
+		// Log the full error for debugging but return user-friendly message
+		log.Printf("LLM analysis failed: %v", err)
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "401") || strings.Contains(errMsg, "Authentication") {
+			return nil, fmt.Errorf("AI分析服务暂不可用：API密钥无效或已过期，请联系管理员更新LLM_API_KEY")
+		}
+		if strings.Contains(errMsg, "not configured") {
+			return nil, fmt.Errorf("AI分析服务未配置：请设置LLM_API_KEY环境变量")
+		}
+		return nil, fmt.Errorf("AI分析失败，请稍后重试")
 	}
 
 	// Try to parse the result as JSON

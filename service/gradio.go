@@ -27,8 +27,9 @@ func gradioURL() string {
 
 // TranscribeChunk is a piece of transcription text from Gradio
 type TranscribeChunk struct {
-	Text string
-	Done bool
+	Text   string
+	Done   bool
+	Status string // non-empty = progress/status update (not transcription text)
 }
 
 // TranscribeStream calls Gradio SenseVoice API and returns a channel of text chunks
@@ -42,15 +43,23 @@ func TranscribeStream(audioPath string) (<-chan TranscribeChunk, <-chan error) {
 
 		session := fmt.Sprintf("go_%d", time.Now().UnixNano())
 
-		// Step 1: Submit job
-		eventID, err := gradioSubmit(audioPath, session)
+		// Step 1: Upload file
+		ch <- TranscribeChunk{Status: "uploading"}
+		cachedPath, err := gradioUploadFile(audioPath)
 		if err != nil {
+			errCh <- fmt.Errorf("gradio upload: %w", err)
+			return
+		}
+
+		// Step 2: Submit job (queues the job, Gradio starts processing)
+		ch <- TranscribeChunk{Status: "processing"}
+		if _, err := gradioSubmitWithPath(cachedPath, session); err != nil {
 			errCh <- fmt.Errorf("gradio submit: %w", err)
 			return
 		}
-		_ = eventID
 
-		// Step 2: Connect to SSE queue and stream events
+		// Step 3: Connect to SSE queue (Gradio buffers events, won't miss them)
+		ch <- TranscribeChunk{Status: "transcribing"}
 		if err := gradioStreamEvents(session, ch); err != nil {
 			errCh <- err
 		}
@@ -59,32 +68,24 @@ func TranscribeStream(audioPath string) (<-chan TranscribeChunk, <-chan error) {
 	return ch, errCh
 }
 
-// gradioSubmit uploads the audio file to Gradio, then submits the transcribe job
-func gradioSubmit(audioPath, session string) (string, error) {
-	// Step 0: Upload file to Gradio's cache
-	cachedPath, err := gradioUploadFile(audioPath)
-	if err != nil {
-		return "", fmt.Errorf("gradio upload: %w", err)
-	}
-
-	// Step 1: Submit transcribe job with cached path
+// gradioSubmitWithPath submits the transcribe job with an already-uploaded cached file path
+func gradioSubmitWithPath(cachedPath, session string) (string, error) {
 	body := map[string]interface{}{
 		"data": []interface{}{
 			map[string]interface{}{
 				"path": cachedPath,
 				"meta": map[string]string{"_type": "gradio.FileData"},
 			},
-			"file", "auto", 3, true,
+			"auto",
 		},
 		"event_data":   nil,
-		"trigger_id":   nil,
 		"session_hash": session,
 	}
 	b, _ := json.Marshal(body)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Post(
-		gradioURL()+"/gradio_api/call/transcribe",
+		gradioURL()+"/gradio_api/call/stream_inference",
 		"application/json",
 		strings.NewReader(string(b)),
 	)
@@ -151,10 +152,10 @@ func gradioUploadFile(localPath string) (string, error) {
 	return paths[0], nil
 }
 
-// gradioStreamEvents connects to Gradio SSE queue and sends parsed chunks to the channel
+// gradioStreamEvents opens SSE connection and parses events into the channel.
+// This is a blocking call — call it in a goroutine before submitting the job.
 func gradioStreamEvents(session string, ch chan<- TranscribeChunk) error {
 	url := fmt.Sprintf("%s/gradio_api/queue/data?session_hash=%s", gradioURL(), session)
-	// SSE long-poll: no overall timeout, only header timeout
 	client := &http.Client{
 		Transport: &http.Transport{
 			ResponseHeaderTimeout: 10 * time.Second,
@@ -260,16 +261,18 @@ func isComplete(msg string) bool {
 }
 
 var (
-	tagRe     = regexp.MustCompile(`<[^>]+>`)
-	cursorRe  = regexp.MustCompile(`<span class="cursor">[|▌]</span>`)
-	hasCJK    = regexp.MustCompile(`[\p{Han}]`)
-	// Strip leading SenseVoice emotion markers
+	tagRe        = regexp.MustCompile(`<[^>]+>`)
+	cursorRe     = regexp.MustCompile(`<span class="cursor">[|▌]</span>`)
+	hasCJK       = regexp.MustCompile(`[\p{Han}]`)
 	stripEmoji   = regexp.MustCompile(`[🎼😊😅😂🤣❤️🔥💯✨]+`)
 	leadingNoise = regexp.MustCompile(`^[^\p{Han}]+`)
+	htmlEntityRe = regexp.MustCompile(`&[a-z]+;`)
+	// Gradio 6 textarea: <textarea ...>text</textarea>
+	textareaRe = regexp.MustCompile(`<textarea[^>]*>(.*?)</textarea>`)
 )
 
 // extractTextFromHTML extracts readable text from Gradio's HTML output.
-// SenseVoice HTML has <div class="line ...">text</div> — each line is a sentence/segment.
+// Tries multiple formats: line divs, textarea, then plain text fallback.
 func extractTextFromHTML(dataArr []interface{}) string {
 	var lines []string
 	seen := make(map[string]bool)
@@ -283,26 +286,50 @@ func extractTextFromHTML(dataArr []interface{}) string {
 		// Remove cursor spans
 		html = cursorRe.ReplaceAllString(html, "")
 
-		// Extract each line div's text
+		// Try 1: Extract from <div class="line ...">text</div>
 		lineRe := regexp.MustCompile(`<div class="line[^"]*">(.*?)</div>`)
 		matches := lineRe.FindAllStringSubmatch(html, -1)
 		for _, m := range matches {
-			text := tagRe.ReplaceAllString(m[1], "")
-			text = strings.TrimSpace(text)
-			// Strip leading SenseVoice emotion markers (🎼, 😊, etc.)
-			text = stripEmoji.ReplaceAllString(text, "")
-			// Strip leading non-CJK chars (punctuation from stripped emoji)
-			text = leadingNoise.ReplaceAllString(text, "")
-			text = strings.TrimSpace(text)
-			if text == "" || seen[text] {
-				continue
+			text := cleanText(m[1])
+			if text != "" && !seen[text] && hasCJK.MatchString(text) {
+				seen[text] = true
+				lines = append(lines, text)
 			}
-			// Filter: lines must contain at least one CJK character
-			if !hasCJK.MatchString(text) {
-				continue
+		}
+		if len(matches) > 0 {
+			continue
+		}
+
+		// Try 2: Extract from <textarea>text</textarea> (Gradio 6 Textbox)
+		taMatches := textareaRe.FindAllStringSubmatch(html, -1)
+		for _, m := range taMatches {
+			text := strings.TrimSpace(m[1])
+			if text != "" {
+				for _, t := range strings.Split(text, "\n") {
+					t = cleanText(t)
+					if t != "" && !seen[t] && hasCJK.MatchString(t) {
+						seen[t] = true
+						lines = append(lines, t)
+					}
+				}
 			}
-			seen[text] = true
-			lines = append(lines, text)
+		}
+		if len(taMatches) > 0 {
+			continue
+		}
+
+		// Try 3: Plain text fallback — strip all tags
+		text := tagRe.ReplaceAllString(html, "")
+		text = htmlEntityRe.ReplaceAllString(text, "")
+		text = strings.TrimSpace(text)
+		if text != "" {
+			for _, t := range strings.Split(text, "\n") {
+				t = cleanText(t)
+				if t != "" && !seen[t] && hasCJK.MatchString(t) {
+					seen[t] = true
+					lines = append(lines, t)
+				}
+			}
 		}
 	}
 
@@ -310,4 +337,11 @@ func extractTextFromHTML(dataArr []interface{}) string {
 		return ""
 	}
 	return strings.Join(lines, "\n")
+}
+
+func cleanText(s string) string {
+	s = tagRe.ReplaceAllString(s, "")
+	s = stripEmoji.ReplaceAllString(s, "")
+	s = leadingNoise.ReplaceAllString(s, "")
+	return strings.TrimSpace(s)
 }

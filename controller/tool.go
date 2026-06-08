@@ -196,6 +196,7 @@ func ToolTranscribeStream(c *gin.Context) {
 	emitSSE(c.Writer, flusher, "status", "正在上传音频并启动识别...")
 
 	ch, errCh := service.TranscribeStream(absPath)
+	var emittedText string
 	emitted := make(map[string]bool)
 
 	for {
@@ -210,7 +211,7 @@ func ToolTranscribeStream(c *gin.Context) {
 					}
 				default:
 				}
-				emitSSE(c.Writer, flusher, "done", "")
+				emitSSE(c.Writer, flusher, "done", emittedText)
 				return
 			}
 			if chunk.Status != "" {
@@ -218,10 +219,9 @@ func ToolTranscribeStream(c *gin.Context) {
 				continue
 			}
 			if chunk.Done {
-				emitSSE(c.Writer, flusher, "done", "")
+				emitSSE(c.Writer, flusher, "done", emittedText)
 				return
 			}
-			// Forward each unique line from Gradio as a chunk
 			for _, line := range strings.Split(chunk.Text, "\n") {
 				line = strings.TrimSpace(line)
 				if line == "" {
@@ -230,6 +230,7 @@ func ToolTranscribeStream(c *gin.Context) {
 				if strings.Contains(line, "实时转译中") ||
 					strings.Contains(line, "总时长") ||
 					strings.Contains(line, "转译完成") ||
+					strings.Contains(line, "AI 纠错") ||
 					strings.ReplaceAll(line, "─", "") == "" {
 					continue
 				}
@@ -240,6 +241,7 @@ func ToolTranscribeStream(c *gin.Context) {
 					continue
 				}
 				emitted[cleanLine] = true
+				emittedText += cleanLine
 				emitSSE(c.Writer, flusher, "chunk", cleanLine)
 			}
 		case e := <-errCh:

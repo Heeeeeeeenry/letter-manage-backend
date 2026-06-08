@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"letter-manage-backend/config"
 	"letter-manage-backend/model"
@@ -16,7 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ToolController handles /api/tool/ (unified dispatch) and sub-paths
 func ToolController(c *gin.Context) {
 	var req model.APIRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -25,8 +23,6 @@ func ToolController(c *gin.Context) {
 	}
 	dispatchTool(c, req.Order, req.Args)
 }
-
-// Sub-path handlers
 
 func ToolTimeDiff(c *gin.Context) {
 	args := parseToolArgs(c)
@@ -88,7 +84,6 @@ func ToolMonthCalendar(c *gin.Context) {
 	c.JSON(http.StatusOK, model.SuccessResp(data))
 }
 
-// parseToolArgs parses the request body or form data into args map
 func parseToolArgs(c *gin.Context) map[string]interface{} {
 	var req model.APIRequest
 	if err := c.ShouldBindJSON(&req); err == nil && req.Args != nil {
@@ -157,11 +152,8 @@ func ToolTranscribe(c *gin.Context) {
 	ch, errCh := service.TranscribeStream(absPath)
 	var texts []string
 	for chunk := range ch {
-		if chunk.Status != "" {
+		if chunk.Status != "" || chunk.Done {
 			continue
-		}
-		if chunk.Done {
-			break
 		}
 		texts = append(texts, chunk.Text)
 	}
@@ -173,7 +165,7 @@ func ToolTranscribe(c *gin.Context) {
 		}
 	default:
 	}
-	c.JSON(http.StatusOK, model.SuccessResp(strings.Join(texts, "\n\n")))
+	c.JSON(http.StatusOK, model.SuccessResp(strings.Join(texts, "\n")))
 }
 
 func ToolTranscribeStream(c *gin.Context) {
@@ -184,7 +176,6 @@ func ToolTranscribeStream(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResp("请提供 audio_url"))
 		return
 	}
-
 	absPath, err := resolveAudioPath(req.AudioURL)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResp(err.Error()))
@@ -205,7 +196,6 @@ func ToolTranscribeStream(c *gin.Context) {
 	emitSSE(c.Writer, flusher, "status", "正在上传音频并启动识别...")
 
 	ch, errCh := service.TranscribeStream(absPath)
-	var emittedText string
 	emitted := make(map[string]bool)
 
 	for {
@@ -220,7 +210,7 @@ func ToolTranscribeStream(c *gin.Context) {
 					}
 				default:
 				}
-				emitSSE(c.Writer, flusher, "done", emittedText)
+				emitSSE(c.Writer, flusher, "done", "")
 				return
 			}
 			if chunk.Status != "" {
@@ -228,37 +218,29 @@ func ToolTranscribeStream(c *gin.Context) {
 				continue
 			}
 			if chunk.Done {
-				emitSSE(c.Writer, flusher, "done", emittedText)
+				emitSSE(c.Writer, flusher, "done", "")
 				return
 			}
-			// Gradio sends cumulative text. Only emit new lines.
-			for _, rawLine := range strings.Split(chunk.Text, "\n") {
-				rawLine = strings.TrimSpace(rawLine)
-				if rawLine == "" {
+			// Forward each unique line from Gradio as a chunk
+			for _, line := range strings.Split(chunk.Text, "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" {
 					continue
 				}
-				if strings.Contains(rawLine, "实时转译中") ||
-					strings.Contains(rawLine, "总时长") ||
-					strings.Contains(rawLine, "转译完成") ||
-					strings.ReplaceAll(rawLine, "─", "") == "" {
+				if strings.Contains(line, "实时转译中") ||
+					strings.Contains(line, "总时长") ||
+					strings.Contains(line, "转译完成") ||
+					strings.ReplaceAll(line, "─", "") == "" {
 					continue
 				}
-				cleanLine := regexp.MustCompile(`^\[\d+\]\s*`).ReplaceAllString(rawLine, "")
+				cleanLine := regexp.MustCompile(`^\[\d+\]\s*`).ReplaceAllString(line, "")
 				cleanLine = leadingNoise.ReplaceAllString(cleanLine, "")
 				cleanLine = strings.TrimSpace(cleanLine)
-				if cleanLine == "" {
-					continue
-				}
-				if emitted[cleanLine] {
+				if cleanLine == "" || emitted[cleanLine] {
 					continue
 				}
 				emitted[cleanLine] = true
-				// Character-by-character streaming for typewriter effect
-				for _, ch := range cleanLine {
-					emitSSE(c.Writer, flusher, "chunk", string(ch))
-					time.Sleep(30 * time.Millisecond)
-				}
-				emittedText += cleanLine
+				emitSSE(c.Writer, flusher, "chunk", cleanLine)
 			}
 		case e := <-errCh:
 			if e != nil {

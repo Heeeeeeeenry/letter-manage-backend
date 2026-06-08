@@ -15,6 +15,7 @@ type Config struct {
 	LLM          LLMConfig               `yaml:"llm"`
 	Media        MediaConfig             `yaml:"media"`
 	Gradio       GradioConfig            `yaml:"gradio"`
+	ASR          ASRConfig               `yaml:"asr"`
 	CORS         CORSConfig              `yaml:"cors"`
 	Environments map[string]EnvOverride  `yaml:"environments"`
 }
@@ -48,6 +49,10 @@ type MediaConfig struct {
 
 type GradioConfig struct {
 	BaseURL string `yaml:"base_url"`
+}
+
+type ASRConfig struct {
+	WSURL string `yaml:"ws_url"`
 }
 
 type CORSConfig struct {

@@ -416,6 +416,10 @@ func CreateLetter(args map[string]interface{}) (*model.Letter, error) {
 		CitizenFiles:          model.JSONRaw("[]"),
 	}
 	dao.UpsertAttachment(att)
+	// 通知市局民意智感中心有新信件上报
+	if letter.CitizenName != "" {
+		NotifyNewLetter(letter.LetterNo, letter.CitizenName)
+	}
 	return letter, nil
 }
 
@@ -653,7 +657,14 @@ func DispatchLetter(args map[string]interface{}, operator *model.PoliceUser) err
 	}
 	// 每次下发重新设置 4 个工作日处理倒计时（扣除节假日）
 	deadline := GetWorkdayDeadline(time.Now(), 4)
-	return dao.UpdateLetterDeadline(letterNo, &deadline)
+	if err := dao.UpdateLetterDeadline(letterNo, &deadline); err != nil {
+		return err
+	}
+	// 通知目标单位及所有下属单位
+	if targetUnitID != nil {
+		NotifyDispatch(letterNo, *targetUnitID, operator.Name)
+	}
+	return nil
 }
 
 func CheckDispatchPermission(operator *model.PoliceUser, targetUnit string, args ...map[string]interface{}) (bool, error) {
@@ -878,6 +889,10 @@ func SubmitProcessing(args map[string]interface{}, operator *model.PoliceUser) e
 		"to_unit":        parentUnit,
 		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
+	// 通知审核人（上级单位）
+	if parentUnitID != nil {
+		NotifySubmitProcessing(letterNo, *parentUnitID, operator.Name)
+	}
 	return appendFlowRecord(letterNo, record)
 }
 
@@ -907,6 +922,8 @@ func HandleBySelf(args map[string]interface{}, operator *model.PoliceUser) error
 		"operator_unit":  dao.GetUnitFullNameByID(operator.UnitID),
 		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
 	}
+	// 通知处理人
+	NotifyHandleBySelf(letterNo, operator.ID, operator.Name)
 	return appendFlowRecord(letterNo, record)
 }
 

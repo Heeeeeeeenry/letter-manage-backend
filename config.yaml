@@ -24,6 +24,9 @@ media:
 gradio:
   base_url: http://localhost:7860
 
+asr:
+  ws_url: ws://stt-realtime:9100/asr/stream
+
 cors:
   allowed_origins:
     - http://localhost:5173

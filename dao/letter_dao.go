@@ -797,8 +797,12 @@ func GetAuditList(unitID *uint, permLevel string, page, pageSize int) ([]model.L
 	query := DB.Model(&model.Letter{})
 	switch permLevel {
 	case "CITY":
-		// 市局：只查看分局已审核上报的（待市局审核 + 待分县局/支队审核），不包含待核查
-		query = query.Where("current_status IN ?", []model.StatusCode{model.StatusCodePendingCityAudit, model.StatusCodePendingDistrictAudit})
+		// 市局：查看待核查 + 待分局审核 + 待市局审核
+		query = query.Where("current_status IN ?", []model.StatusCode{
+			model.StatusCodePendingVerification,
+			model.StatusCodePendingDistrictAudit,
+			model.StatusCodePendingCityAudit,
+		})
 	case "DISTRICT":
 		// 分县局：查看下发至本单位的待核查信件 + 本单位科室已反馈的信件
 		var unitIDs []uint
@@ -841,8 +845,12 @@ func GetAuditListByUnitID(unitID uint, permLevel string, page, pageSize int) ([]
 	query := DB.Model(&model.Letter{})
 	switch permLevel {
 	case "CITY":
-		// 市局：只查看分局已审核上报的（待市局审核 + 待分县局/支队审核），不包含待核查
-		query = query.Where("current_status IN ?", []model.StatusCode{model.StatusCodePendingCityAudit, model.StatusCodePendingDistrictAudit})
+		// 市局：查看待核查 + 待分局审核 + 待市局审核
+		query = query.Where("current_status IN ?", []model.StatusCode{
+			model.StatusCodePendingVerification,
+			model.StatusCodePendingDistrictAudit,
+			model.StatusCodePendingCityAudit,
+		})
 	case "DISTRICT":
 		// 分县局：查看下发至本单位的待核查信件 + 本单位科室已反馈的信件
 		query = query.Where(

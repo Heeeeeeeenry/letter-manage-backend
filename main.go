@@ -80,6 +80,7 @@ func main() {
 	toolGroup.POST("/month_calendar/", controller.ToolMonthCalendar)
 	toolGroup.POST("/transcribe/", controller.ToolTranscribe)
 	toolGroup.POST("/transcribe_stream/", controller.ToolTranscribeStream)
+	toolGroup.GET("/transcribe_ws", controller.ToolTranscribeWS)  // WebSocket proxy
 
 	// Protected routes
 	protected := api.Group("")
@@ -89,6 +90,13 @@ func main() {
 	protected.POST("/setting/", controller.SettingController)
 	protected.POST("/llm/", controller.LLMController)
 	protected.POST("/export_report/", controller.ExportReportController)
+
+	// Notification routes
+	notifGroup := protected.Group("/notification")
+	notifGroup.GET("/unread_count", controller.GetUnreadCount)
+	notifGroup.GET("/list", controller.GetNotifications)
+	notifGroup.POST("/read/:id", controller.MarkNotificationRead)
+	notifGroup.POST("/read_all", controller.MarkAllRead)
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
